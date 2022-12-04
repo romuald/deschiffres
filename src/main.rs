@@ -11,27 +11,49 @@ enum Operation {
     Divison,
 }
 
-struct Number {
+
+struct Number<'a> {
     value: i32,
-    parent: Option<(Operation, i32, i32)>
+    parent: Option<(Operation, &'a Number<'a>, &'a Number<'a>)>,
 }
 
-impl Hash for Number {
+fn example() {
+    let a = Number::from(5);
+    let b = Number::from(1);
+    let c = Number::from(10);
+
+    let d = Number { value: a.value+b.value, parent: Some((Operation::Addition, &a, &b))};
+    let e = Number { value: d.value+c.value, parent: Some((Operation::Addition, &d, &c))};
+
+    println!("e? {e}")
+}
+
+impl std::fmt::Display for Number<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.parent {
+            None => write!(f, "{}", self.value),
+            Some((op, a, b)) => {
+                let symbol = match op {
+                    Operation::Addition => "+",
+                    Operation::Multiplication => "*",
+                    Operation::Substraction => "-",
+                    Operation::Divison => "/",
+                };
+                write!(f, "{} ({} {} {})", self.value, a, symbol, b)
+            }
+        }
+    }
+}
+
+impl Hash for Number<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.value.hash(state);
     }
 }
 
-impl From<i32> for Number {
+impl From<i32> for Number<'_> {
     fn from(item: i32) -> Self {
         Number { value: item, parent: None }
-    }
-}
-
-
-impl From<&i32> for Number {
-    fn from(item: &i32) -> Self {
-        Number { value: *item, parent: None }
     }
 }
 
@@ -93,14 +115,16 @@ fn combine(elements: &HashSet<i32>, results: &mut HashSet<i32>) {
 }
 
 fn main() {
-    let todo = vec![5, 25, 2, 100, 4, 50];
+
+    example();
+
+    let todo = vec![5, 25, 2];
     let mut elements: HashSet<i32> = HashSet::new();
     let mut results: HashSet<i32> = HashSet::new();
     elements.extend(todo.iter());
     combine(&elements, &mut results);
 
     println!("Base: {todo:?}");
-    let len = results.len();
-    println!("Stack: {len:?}");
+    println!("Stack: {results:?}");
 
 }
