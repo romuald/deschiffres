@@ -1,8 +1,10 @@
 use std::hash::{Hash, Hasher};
 use std::convert::From;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 use itertools::Itertools;
 
+type ResultSet = HashMap<i32, Vec<Number>>;
 
 #[derive(Copy, Clone)]
 enum Operation {
@@ -98,7 +100,7 @@ fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
     }
 }
 
-fn operate(operation: Operation, a: &Number, b: &Number, elements: &[Number], results: &mut HashSet<Number>) {
+fn operate(operation: Operation, a: &Number, b: &Number, elements: &[Number], results: &mut ResultSet) {
     let aa = a.value;
     let bb = b.value;
 
@@ -131,7 +133,7 @@ fn operate(operation: Operation, a: &Number, b: &Number, elements: &[Number], re
         // then re-call the combine method recursivelly
         let mut subelements = elements.to_owned();
         
-        results.insert(value.clone());
+        results.entry(value.value).or_insert_with(Vec::new).push(value.clone());
 
         subelements.push(value);
         remove_from_vec(&mut subelements, a);
@@ -153,7 +155,7 @@ fn to_tuple(x: Vec<&Number>) -> (&Number, &Number) {
     (&ZERO, &ZERO)
 }
 
-fn combine(elements: &[Number], results: &mut HashSet<Number>) {
+fn combine(elements: &[Number], results: &mut ResultSet) {
     let combinaisons = elements.iter().combinations(2).into_iter().map(to_tuple);
 
     for (a, b) in combinaisons {
@@ -172,25 +174,45 @@ fn main() {
 
     let todo = vec![5, 25, 2, 50, 100, 10];
     let todo: Vec<Number> = todo.iter().map(|&x| Number::from(x)).collect();
-    //remove_from_vec(&mut todo, &Number::from(5));
-    //println!("Todo?, {todo:?}");
-    //return;
 
     let mut elements: Vec<Number> = Vec::new();
-    let mut results: HashSet<Number> = HashSet::new();
+    let mut results: ResultSet = HashMap::new();
 
     elements.extend(todo.clone());
-    combine(&elements, &mut results);
 
+    let start = Instant::now();
+    combine(&elements, &mut results);
+    let end = Instant::now();
+    
     println!("Base: {todo:?}");
     println!("Stack: {:?}", results.len());
-
+    println!("Computed in {:?}", end - start);
+    let start = Instant::now();
     let find_me = 280;
 
-    for elt in results {
-        if elt.value == find_me {
+    if let Some(found) = results.get_mut(&find_me) {
+        found.sort_by(|a, b| {
+            a.len().cmp(&b.len())
+        });
+
+        let first = found.first().unwrap();
+        println!("Found {} {} times, with len {}", first, found.len(), first.len());
+    }
+    let end = Instant::now();
+    println!("Found in {:?}", end - start);
+    
+    let mut s = String::new();
+    //std::io::stdin().read_line(&mut s);
+
+    return;
+    /*
+    for (value, elt) in &results {
+        if *value == find_me {
+
             println!("Found {}, with len {}", elt, elt.len());
+            break;
         }
     }
+     */
 
 }
