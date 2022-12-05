@@ -12,14 +12,23 @@ enum Operation {
     Divison,
 }
 
-
-
 struct Number {
     value: i32,
     parent: Option<(Operation, Box<Number>, Box<Number>)>,
 }
 
-impl  Clone for Number {
+impl Number {
+    fn len(&self) -> usize {
+        match &self.parent {
+            None => 0,
+            Some((_, a, b)) => 1 + a.len() + b.len(),
+        }
+    }
+}
+
+static ZERO: Number = Number { value:0, parent:None };
+
+impl Clone for Number {
     fn clone(&self) -> Self {
         Self { value: self.value, parent: self.parent.clone() }
     }
@@ -80,7 +89,16 @@ impl From<i32> for Number {
     }
 }
 
-fn operate(operation: Operation, a: &Number, b: &Number, elements: &HashSet<Number>, results: &mut HashSet<Number>) {
+fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
+    for (i, elt) in vec.iter().enumerate() {
+        if elt == to_remove {
+            vec.remove(i);
+            break;
+        }
+    }
+}
+
+fn operate(operation: Operation, a: &Number, b: &Number, elements: &[Number], results: &mut HashSet<Number>) {
     let aa = a.value;
     let bb = b.value;
 
@@ -95,7 +113,7 @@ fn operate(operation: Operation, a: &Number, b: &Number, elements: &HashSet<Numb
             }
         },
         Operation::Divison => {
-            if aa % bb == 0 {
+            if bb > 0 && aa % bb == 0 {
                 Some(aa / bb)
             } else {
                 None
@@ -111,13 +129,13 @@ fn operate(operation: Operation, a: &Number, b: &Number, elements: &HashSet<Numb
 
         // Create a new "stack", by removing the elements we used and adding the result
         // then re-call the combine method recursivelly
-        let mut subelements = elements.clone();
+        let mut subelements = elements.to_owned();
         
         results.insert(value.clone());
 
-        subelements.insert(value);
-        subelements.remove(a);
-        subelements.remove(b);
+        subelements.push(value);
+        remove_from_vec(&mut subelements, a);
+        remove_from_vec(&mut subelements, b);
 
         if subelements.len() > 1 {
             combine(&subelements, results);
@@ -125,26 +143,26 @@ fn operate(operation: Operation, a: &Number, b: &Number, elements: &HashSet<Numb
     }
 }
 
-fn to_tuple(x: Vec<Number>) -> (Number, Number) {
+fn to_tuple(x: Vec<&Number>) -> (&Number, &Number) {
     if let Some(a) = x.first() {
         if let Some(b) = x.get(1) {
-            return (a.clone(), b.clone());
+            return (a, b);
         }
     }
 
-    (Number::from(0), Number::from(0))
+    (&ZERO, &ZERO)
 }
 
-fn combine(elements: &HashSet<Number>, results: &mut HashSet<Number>) {
-    let combinaisons = elements.clone().into_iter().combinations(2).into_iter().map(to_tuple);
+fn combine(elements: &[Number], results: &mut HashSet<Number>) {
+    let combinaisons = elements.iter().combinations(2).into_iter().map(to_tuple);
 
     for (a, b) in combinaisons {
-        operate(Operation::Addition, &a, &b, elements, results);
-        operate(Operation::Multiplication, &a, &b, elements, results);
-        operate(Operation::Substraction, &a, &b, elements, results);
-        operate(Operation::Substraction, &b, &a, elements, results);
-        operate(Operation::Divison, &a, &b, elements, results);
-        operate(Operation::Divison, &b, &a, elements, results);
+        operate(Operation::Addition, a, b, elements, results);
+        operate(Operation::Multiplication, a, b, elements, results);
+        operate(Operation::Substraction, a, b, elements, results);
+        operate(Operation::Substraction, b, a, elements, results);
+        operate(Operation::Divison, a, b, elements, results);
+        operate(Operation::Divison, b, a, elements, results);
     }
 }
 
@@ -154,8 +172,11 @@ fn main() {
 
     let todo = vec![5, 25, 2, 50, 100, 10];
     let todo: Vec<Number> = todo.iter().map(|&x| Number::from(x)).collect();
+    //remove_from_vec(&mut todo, &Number::from(5));
+    //println!("Todo?, {todo:?}");
+    //return;
 
-    let mut elements: HashSet<Number> = HashSet::new();
+    let mut elements: Vec<Number> = Vec::new();
     let mut results: HashSet<Number> = HashSet::new();
 
     elements.extend(todo.clone());
@@ -168,7 +189,7 @@ fn main() {
 
     for elt in results {
         if elt.value == find_me {
-            println!("Found {}", elt)
+            println!("Found {}, with len {}", elt, elt.len());
         }
     }
 
