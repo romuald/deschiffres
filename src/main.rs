@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
 use std::convert::From;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Instant;
 use itertools::Itertools;
 
-type ResultSet = HashMap<i32, Vec<Number>>;
+type ResultSet = HashMap<i32, Number>;
 
 #[derive(Copy, Clone)]
 enum Operation {
@@ -133,7 +133,13 @@ fn operate(operation: Operation, a: &Number, b: &Number, elements: &[Number], re
         // then re-call the combine method recursivelly
         let mut subelements = elements.to_owned();
         
-        results.entry(value.value).or_insert_with(Vec::new).push(value.clone());
+        if let Some(current) = results.get(&value.value) {
+            if current.len() > value.len() {
+                results.insert(value.value, value.clone());
+            }
+        } else {
+            results.insert(value.value, value.clone());
+        }
 
         subelements.push(value);
         remove_from_vec(&mut subelements, a);
@@ -187,32 +193,9 @@ fn main() {
     println!("Base: {todo:?}");
     println!("Stack: {:?}", results.len());
     println!("Computed in {:?}", end - start);
-    let start = Instant::now();
-    let find_me = 280;
+    let find_me = 281;
 
     if let Some(found) = results.get_mut(&find_me) {
-        found.sort_by(|a, b| {
-            a.len().cmp(&b.len())
-        });
-
-        let first = found.first().unwrap();
-        println!("Found {} {} times, with len {}", first, found.len(), first.len());
+        println!("Found {} times, with len {}", found, found.len());
     }
-    let end = Instant::now();
-    println!("Found in {:?}", end - start);
-    
-    let mut s = String::new();
-    //std::io::stdin().read_line(&mut s);
-
-    return;
-    /*
-    for (value, elt) in &results {
-        if *value == find_me {
-
-            println!("Found {}, with len {}", elt, elt.len());
-            break;
-        }
-    }
-     */
-
 }
