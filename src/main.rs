@@ -1,10 +1,11 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_utils::thread::scope;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::convert::From;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration};
+use std::thread::available_parallelism;
+use std::time::Duration;
 
 type ResultSet = HashMap<i32, Number>;
 
@@ -16,6 +17,7 @@ enum Operation {
     Divison,
 }
 
+// Basic Number representation, with an optional parent which is 2 other numbers and an operation
 struct Number {
     value: i32,
     parent: Option<(Operation, Box<Number>, Box<Number>)>,
@@ -30,10 +32,7 @@ impl Number {
     }
 }
 
-static ZERO: Number = Number {
-    value: 0,
-    parent: None,
-};
+static ZERO: Number = Number {value: 0, parent: None};
 
 impl Clone for Number {
     fn clone(&self) -> Self {
@@ -44,26 +43,7 @@ impl Clone for Number {
     }
 }
 
-impl Eq for Number {}
-
-#[allow(dead_code)]
-fn example() {
-    let a = Number::from(5);
-    let b = Number::from(1);
-    let c = Number::from(10);
-
-    let d = Number {
-        value: a.value + b.value,
-        parent: Some((Operation::Addition, Box::new(a), Box::new(b))),
-    };
-    let e = Number {
-        value: d.value + c.value,
-        parent: Some((Operation::Addition, Box::new(d), Box::new(c))),
-    };
-
-    println!("e? {e}")
-}
-
+// Recursively display the number and its parent if any
 impl std::fmt::Display for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self.parent {
@@ -81,20 +61,10 @@ impl std::fmt::Display for Number {
     }
 }
 
+// Only show the value
 impl std::fmt::Debug for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value)
-    }
-}
-
-impl Hash for Number {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.value.hash(state);
-    }
-}
-impl std::cmp::PartialEq for Number {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
     }
 }
 
@@ -109,11 +79,12 @@ impl From<i32> for Number {
 
 fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
     for (i, elt) in vec.iter().enumerate() {
-        if elt == to_remove {
+        if elt.value == to_remove.value {
             vec.remove(i);
-            break;
+            return;
         }
     }
+    panic!("Not removed??")
 }
 
 fn operate(
@@ -122,7 +93,7 @@ fn operate(
     a: &Number,
     b: &Number,
     elements: &[Number],
-    tx2: &Sender<Number>,
+    rtx: &Sender<Number>,
 ) {
     let aa = a.value;
     let bb = b.value;
@@ -151,12 +122,14 @@ fn operate(
             value,
             parent: Some((operation, Box::new(a.clone()), Box::new(b.clone()))),
         };
-        tx2.send(value.clone()).unwrap();
+        rtx.send(value.clone()).unwrap();
 
         let mut subelements = elements.to_owned();
-        subelements.push(value);
+        
         remove_from_vec(&mut subelements, a);
         remove_from_vec(&mut subelements, b);
+        
+        subelements.push(value);
 
         if subelements.len() > 1 {
             tx.send(subelements).unwrap();
@@ -164,9 +137,9 @@ fn operate(
     }
 }
 
-fn more_results(rx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
+fn more_results(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
     loop {
-        let value = rx.recv_timeout(Duration::from_millis(5));
+        let value = rtx.recv_timeout(Duration::from_millis(5));
         let value = match value {
             Ok(x) => x,
             Err(_) => break,
@@ -185,6 +158,7 @@ fn more_results(rx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
         }
     }
 }
+
 fn to_tuple(x: Vec<&Number>) -> (&Number, &Number) {
     if let Some(a) = x.first() {
         if let Some(b) = x.get(1) {
@@ -195,41 +169,33 @@ fn to_tuple(x: Vec<&Number>) -> (&Number, &Number) {
     (&ZERO, &ZERO)
 }
 
-fn combine(tx: Sender<Vec<Number>>, elements: &[Number], tx2: Sender<Number>) {
+fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
     let combinaisons = elements.iter().combinations(2).into_iter().map(to_tuple);
 
     for (a, b) in combinaisons {
-        operate(&tx, Operation::Addition, a, b, elements, &tx2);
-        operate(&tx, Operation::Multiplication, a, b, elements, &tx2);
-        operate(&tx, Operation::Substraction, a, b, elements, &tx2);
-        operate(&tx, Operation::Substraction, b, a, elements, &tx2);
-        operate(&tx, Operation::Divison, a, b, elements, &tx2);
-        operate(&tx, Operation::Divison, b, a, elements, &tx2);
+        operate(&tx, Operation::Addition, a, b, elements, &rtx);
+        operate(&tx, Operation::Multiplication, a, b, elements, &rtx);
+        operate(&tx, Operation::Substraction, a, b, elements, &rtx);
+        operate(&tx, Operation::Substraction, b, a, elements, &rtx);
+        operate(&tx, Operation::Divison, a, b, elements, &rtx);
+        operate(&tx, Operation::Divison, b, a, elements, &rtx);
     }
 }
 
-fn handler(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, tx2: Sender<Number>) {
+fn handler(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, rtx: Sender<Number>) {
     loop {
-        let tx = tx.clone();
-        let value = rx.recv_timeout(Duration::from_millis(5));
-        let elements = match value {
+        let elements = match rx.recv_timeout(Duration::from_millis(5)) {
             Ok(x) => x,
             Err(_) => break,
         };
 
-        combine(tx, &elements, tx2.clone());
+        combine(tx.clone(), &elements, rtx.clone());
     }
 }
 
-// fn spawn_worker(scope: &Scope, tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, tx2: Sender<Number>) -> ScopedJoinHandle<()> {
-//     scope.spawn(|_| {
-//         handler(tx, rx, res_tx)
-//     })
-// }
 fn main() {
-    use std::thread::available_parallelism;
     let ncores = match available_parallelism() {
-        Ok(x) => x.get(),
+        Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 4,
     };
 
@@ -247,9 +213,10 @@ fn main() {
     elements.extend(todo);
 
     combine_tx.send(elements.clone()).unwrap();
-    crossbeam_utils::thread::scope(|s| {
+
+    scope(|s| {
         let mut workers = Vec::new();
-        for _ in 0..ncores-1 {
+        for _ in 0..ncores - 1 {
             let vtx = combine_tx.clone();
             let vrx = combine_rx.clone();
             let res_tx = result_tx.clone();
@@ -258,11 +225,14 @@ fn main() {
             workers.push(worker);
         }
 
-        { // seems to be no gain from parallelism here
+        {
+            // seems to be no gain from parallelism here
             let rx = result_rx.clone();
             let worker = s.spawn(|_| more_results(rx, results.clone()));
             workers.push(worker)
         }
+        drop(combine_tx);
+        drop(result_tx);
 
         for worker in workers {
             worker.join().unwrap();
@@ -272,7 +242,7 @@ fn main() {
             let mut results = results.lock().unwrap();
             println!("realy? {:?}", results.len());
 
-            let find_me = 280;
+            let find_me = 281;
 
             if let Some(found) = results.get_mut(&find_me) {
                 println!("Found {} times, with len {}", found, found.len());
