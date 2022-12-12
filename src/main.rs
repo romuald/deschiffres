@@ -42,8 +42,6 @@ impl Number {
     }
 }
 
-static ZERO: Number = Number {value: 0, parent: None};
-
 impl Clone for Number {
     fn clone(&self) -> Self {
         Self {
@@ -128,19 +126,20 @@ fn operate(
         };
         rtx.send(value.clone()).unwrap();
 
-        let mut subelements = elements.to_owned();
+        if elements.len() > 2 {
+            let mut subelements = elements.to_owned();
 
-        remove_from_vec(&mut subelements, a);
-        remove_from_vec(&mut subelements, b);
+            remove_from_vec(&mut subelements, a);
+            remove_from_vec(&mut subelements, b);
 
-        subelements.push(value);
-
-        if subelements.len() > 1 {
+            subelements.push(value);
             tx.send(subelements).unwrap();
         }
     }
 }
 
+// Receive from the result channel, and set the elements of the result map
+// If a result was already seen, use the shortest one
 fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
     loop {
         let value = rtx.recv();
@@ -163,29 +162,23 @@ fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
     }
 }
 
-fn to_tuple(x: Vec<&Number>) -> (&Number, &Number) {
-    if let Some(a) = x.first() {
-        if let Some(b) = x.get(1) {
-            return (a, b);
+// Given a list of Number, try to combinate every possible pair of them
+// Then append those results to the combine channel
+fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
+    for pair in elements.iter().combinations(2) {
+        if let [a, b] = pair[..] {
+            operate(&tx, Operation::Addition, a, b, elements, &rtx);
+            operate(&tx, Operation::Multiplication, a, b, elements, &rtx);
+            operate(&tx, Operation::Substraction, a, b, elements, &rtx);
+            operate(&tx, Operation::Substraction, b, a, elements, &rtx);
+            operate(&tx, Operation::Divison, a, b, elements, &rtx);
+            operate(&tx, Operation::Divison, b, a, elements, &rtx);
         }
     }
-
-    (&ZERO, &ZERO)
 }
 
-fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
-    let combinaisons = elements.iter().combinations(2).into_iter().map(to_tuple);
-
-    for (a, b) in combinaisons {
-        operate(&tx, Operation::Addition, a, b, elements, &rtx);
-        operate(&tx, Operation::Multiplication, a, b, elements, &rtx);
-        operate(&tx, Operation::Substraction, a, b, elements, &rtx);
-        operate(&tx, Operation::Substraction, b, a, elements, &rtx);
-        operate(&tx, Operation::Divison, a, b, elements, &rtx);
-        operate(&tx, Operation::Divison, b, a, elements, &rtx);
-    }
-}
-
+// Listen the combinaison channel for new lists of Numbers, and combine them
+// (that will probably generate more combinaison events)
 fn combinaison_worker(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, result_tx: Sender<Number>) {
     loop {
         let elements = match rx.recv_timeout(Duration::from_millis(5)) {
@@ -212,7 +205,6 @@ fn example() {
 
     display_number(show)
 }
-
 
 fn display_number(show: Number) {
     fn _recurse_display(n: Number, display: &mut Vec<String>) {
@@ -293,19 +285,4 @@ fn main() {
         }
     })
     .unwrap();
-
-    /*
-    let start = Instant::now();
-    //combine(&elements, &mut results);
-    let end = Instant::now();
-
-    println!("Base: {todo:?}");
-    println!("Stack: {:?}", results.len());
-    println!("Computed in {:?}", end - start);
-    let find_me = 281;
-
-    if let Some(found) = results.get_mut(&find_me) {
-        println!("Found {} times, with len {}", found, found.len());
-    }
-    */
 }
