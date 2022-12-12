@@ -16,6 +16,16 @@ enum Operation {
     Substraction,
     Divison,
 }
+impl std::fmt::Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", match &self {
+            Operation::Addition => "+",
+            Operation::Multiplication => "*",
+            Operation::Substraction => "-",
+            Operation::Divison => "/",
+        })
+    }
+}
 
 // Basic Number representation, with an optional parent which is 2 other numbers and an operation
 struct Number {
@@ -49,13 +59,7 @@ impl std::fmt::Display for Number {
         match &self.parent {
             None => write!(f, "{}", self.value),
             Some((op, a, b)) => {
-                let symbol = match op {
-                    Operation::Addition => "+",
-                    Operation::Multiplication => "*",
-                    Operation::Substraction => "-",
-                    Operation::Divison => "/",
-                };
-                write!(f, "{} ({} {} {})", self.value, a, symbol, b)
+                write!(f, "{} ({} {} {})", self.value, a, op, b)
             }
         }
     }
@@ -125,10 +129,10 @@ fn operate(
         rtx.send(value.clone()).unwrap();
 
         let mut subelements = elements.to_owned();
-        
+
         remove_from_vec(&mut subelements, a);
         remove_from_vec(&mut subelements, b);
-        
+
         subelements.push(value);
 
         if subelements.len() > 1 {
@@ -137,9 +141,9 @@ fn operate(
     }
 }
 
-fn more_results(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
+fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
     loop {
-        let value = rtx.recv_timeout(Duration::from_millis(5));
+        let value = rtx.recv();
         let value = match value {
             Ok(x) => x,
             Err(_) => break,
@@ -182,14 +186,14 @@ fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
     }
 }
 
-fn handler(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, rtx: Sender<Number>) {
+fn combinaison_worker(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, result_tx: Sender<Number>) {
     loop {
         let elements = match rx.recv_timeout(Duration::from_millis(5)) {
             Ok(x) => x,
             Err(_) => break,
         };
 
-        combine(tx.clone(), &elements, rtx.clone());
+        combine(tx.clone(), &elements, result_tx.clone());
     }
 }
 
@@ -211,30 +215,23 @@ fn example() {
 
 
 fn display_number(show: Number) {
-    let mut display = vec![];
-    _display_number(show, &mut display);
-    println!("{}", display.join("\n"));
-}
+    fn _recurse_display(n: Number, display: &mut Vec<String>) {
+        if n.parent.is_none() {
+            return
+        }
+        //let space = std::iter::repeat(" ").take(n.len()-1).collect::<String>();
 
-fn _display_number(n: Number, display: &mut Vec<String>) {
-    if n.parent.is_none() {
-        return
+        let (op, parent_a, parent_b) = n.parent.unwrap();
+        let fmt = format!("{} {} {} = {}", parent_a.value, op, parent_b.value, n.value);
+
+        display.insert(0, fmt);
+        _recurse_display(*parent_a, display);
+        _recurse_display(*parent_b, display);
     }
 
-    let (op, parent_a, parent_b) = n.parent.unwrap();
-    let symbol = match op {
-        Operation::Addition => "+",
-        Operation::Multiplication => "*",
-        Operation::Substraction => "-",
-        Operation::Divison => "/",
-    };
-
-    //let space = std::iter::repeat(" ").take(l-1).collect::<String>();
-    let fmt = format!("{} {} {} = {}", parent_a.value, symbol, parent_b.value, n.value);
-    display.insert(0, fmt);
-
-    _display_number(*parent_a, display);
-    _display_number(*parent_b, display);
+    let mut display = vec![];
+    _recurse_display(show, &mut display);
+    println!("{}", display.join("\n"));
 }
 
 fn main() {
@@ -263,14 +260,14 @@ fn main() {
             let vrx = combine_rx.clone();
             let res_tx = result_tx.clone();
 
-            let worker = s.spawn(|_| handler(vtx, vrx, res_tx));
+            let worker = s.spawn(|_| combinaison_worker(vtx, vrx, res_tx));
             workers.push(worker);
         }
 
         {
             // seems to be no gain from parallelism here
             let rx = result_rx.clone();
-            let worker = s.spawn(|_| more_results(rx, results.clone()));
+            let worker = s.spawn(|_| result_worker(rx, results.clone()));
             workers.push(worker)
         }
         drop(combine_tx);
@@ -281,15 +278,17 @@ fn main() {
         }
 
         {
+            let find_me = 280;
             let mut results = results.lock().unwrap();
-            println!("realy? {:?}", results.len());
 
-            let find_me = 281;
+            println!("Problem find {find_me} with {:?}", spec);
+            println!("Found {} possible combinaison", results.len());
 
             if let Some(found) = results.get_mut(&find_me) {
-                println!("From: {:?}", spec);
-                println!("Found {} times, with len {}", found, found.len());
+                println!("Found a solution with {} operations:", found.len());
                 display_number(found.clone());
+            } else {
+                println!("Did not find a solution")
             }
         }
     })
