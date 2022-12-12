@@ -193,19 +193,61 @@ fn handler(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, rtx: Sender<Numbe
     }
 }
 
+#[allow(dead_code)]
+fn example() {
+
+    let q = Number {
+        value: 15,
+        parent: Some((Operation::Multiplication, Box::new(Number::from(3)), Box::new(Number::from(5))))
+    };
+
+    let show = Number {
+        value: 18,
+        parent: Some((Operation::Addition, Box::new(q), Box::new(Number::from(3))))
+    };
+
+    display_number(show)
+}
+
+
+fn display_number(show: Number) {
+    let mut display = vec![];
+    _display_number(show, &mut display);
+    println!("{}", display.join("\n"));
+}
+
+fn _display_number(n: Number, display: &mut Vec<String>) {
+    if n.parent.is_none() {
+        return
+    }
+
+    let (op, parent_a, parent_b) = n.parent.unwrap();
+    let symbol = match op {
+        Operation::Addition => "+",
+        Operation::Multiplication => "*",
+        Operation::Substraction => "-",
+        Operation::Divison => "/",
+    };
+
+    //let space = std::iter::repeat(" ").take(l-1).collect::<String>();
+    let fmt = format!("{} {} {} = {}", parent_a.value, symbol, parent_b.value, n.value);
+    display.insert(0, fmt);
+
+    _display_number(*parent_a, display);
+    _display_number(*parent_b, display);
+}
+
 fn main() {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 4,
     };
 
-    println!("{ncores} cores");
-
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
 
-    let todo = vec![5, 25, 2, 50, 100, 10];
-    let todo: Vec<Number> = todo.iter().map(|&x| Number::from(x)).collect();
+    let spec = vec![5, 25, 2, 50, 100, 10];
+    let todo: Vec<Number> = spec.iter().map(|&x| Number::from(x)).collect();
 
     let mut elements: Vec<Number> = Vec::new();
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
@@ -245,7 +287,9 @@ fn main() {
             let find_me = 281;
 
             if let Some(found) = results.get_mut(&find_me) {
+                println!("From: {:?}", spec);
                 println!("Found {} times, with len {}", found, found.len());
+                display_number(found.clone());
             }
         }
     })
