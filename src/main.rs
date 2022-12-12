@@ -3,6 +3,7 @@ use crossbeam_utils::thread::scope;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::convert::From;
+use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
@@ -226,24 +227,19 @@ fn display_number(show: Number) {
     println!("{}", display.join("\n"));
 }
 
-fn main() {
+fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 4,
     };
 
+    let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
+    
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
-
-    let spec = vec![5, 25, 2, 50, 100, 10];
-    let todo: Vec<Number> = spec.iter().map(|&x| Number::from(x)).collect();
-
-    let mut elements: Vec<Number> = Vec::new();
-    let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
-
-    elements.extend(todo);
-
-    combine_tx.send(elements.clone()).unwrap();
+    
+    let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
+    combine_tx.send(initial).unwrap();
 
     scope(|s| {
         let mut workers = Vec::new();
@@ -269,20 +265,66 @@ fn main() {
             worker.join().unwrap();
         }
 
-        {
-            let find_me = 280;
-            let mut results = results.lock().unwrap();
+        results.lock().unwrap().to_owned()
+    })
+    .unwrap()
+}
 
-            println!("Problem find {find_me} with {:?}", spec);
-            println!("Found {} possible combinaison", results.len());
+fn parse_args() -> (Vec<i32>, i32) {
+    let args = std::env::args().skip(1);
+    let mut numbers: Vec<i32> = vec![];
 
-            if let Some(found) = results.get_mut(&find_me) {
-                println!("Found a solution with {} operations:", found.len());
-                display_number(found.clone());
-            } else {
-                println!("Did not find a solution")
+    // XXX map + filter negative
+    let mut find_me = -1;
+    for argument in args {
+        let number = match argument.parse() {
+            Ok(n) => n,
+            Err(_) => continue,
+        };
+        if number > 100 {
+            find_me = number;
+            continue;
+            //XXX if find_me != -1 {}
+        }
+        if number < 1 {
+            continue;
+        }
+
+        numbers.push(number);
+    }
+
+    if find_me == -1 {
+        eprintln!("Nothing to find (no number greater than 100)");
+        exit(1);
+    }
+
+    (numbers, find_me)
+}
+
+fn main() {
+    let (spec, to_find) = parse_args();
+
+    let approximation = 0; // Possibly try to find an approximate match up to n  (int)
+    let results = all_combinaisons(&spec);
+
+    println!("Problem: find {to_find} with {spec:?}");
+    println!("Found {} possible combinaisons", results.len());
+    
+    let mut found = false;
+    'outer: for i in 0..approximation + 1 {
+        for sign in [-1, 1].iter() {
+            let value = to_find + i * sign;
+            if let Some(result) = results.get(&value) {
+                let what = if result.value == to_find { "exact" } else { "approximate" };
+                println!("Found an {what} match:");
+                display_number(result.to_owned());
+                found = true;
+                break 'outer;
             }
         }
-    })
-    .unwrap();
+    }
+
+    if ! found {
+        println!("Did not find a match")
+    }
 }
