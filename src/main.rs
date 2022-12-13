@@ -361,3 +361,19 @@ fn main() {
 
     println!("Did not find a match");
 }
+
+#[cfg(test)]
+mod test {
+    use crate::*;
+
+    #[test]
+    fn test_solve() {
+        let numbers = vec![5, 25, 2, 50, 10];
+
+        let combinaisons = all_combinaisons(&numbers);
+
+        assert_eq!(combinaisons.len(), 1085);
+        assert!(combinaisons.contains_key(&280));
+    }
+
+}
