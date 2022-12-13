@@ -216,10 +216,10 @@ fn combinaison_worker(
             let mut set = seen.lock().unwrap();
             let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
             values.sort();
-            if set.contains(&values) {
+
+            // HashSet.insert returns true if element was already present
+            if !set.insert(values) {
                 continue;
-            } else {
-                set.insert(values);
             }
         }
 
