@@ -9,4 +9,3 @@ edition = "2021"
 crossbeam-channel = { version = "0.5.6", features = ["crossbeam-utils"] }
 crossbeam-utils = "0.8.14"
 itertools = "0.10.5"
-lazy_static = "1.4.0"

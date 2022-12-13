@@ -9,6 +9,7 @@ use std::thread::available_parallelism;
 use std::time::Duration;
 
 type ResultSet = HashMap<i32, Number>;
+type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 
 #[derive(Copy, Clone)]
 enum Operation {
@@ -144,9 +145,8 @@ fn operate(
             remove_from_vec(&mut subelements, b);
 
             subelements.push(value);
-            if !seen(&subelements) {
-                tx.send(subelements).unwrap();
-            }
+
+            tx.send(subelements).unwrap();
         }
     }
 }
@@ -196,12 +196,24 @@ fn combinaison_worker(
     tx: Sender<Vec<Number>>,
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
+    seen: SeenType,
 ) {
     loop {
         let elements = match rx.recv_timeout(Duration::from_millis(5)) {
             Ok(x) => x,
             Err(_) => break,
         };
+
+        {
+            let mut set = seen.lock().unwrap();
+            let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+            values.sort();
+            if set.contains(&values) {
+                continue;
+            } else {
+                set.insert(values);
+            }
+        }
 
         combine(tx.clone(), &elements, result_tx.clone());
     }
@@ -253,6 +265,7 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
     };
 
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
+    let seen: SeenType = Arc::new(Mutex::new(HashSet::new()));
 
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
@@ -266,8 +279,9 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
             let vtx = combine_tx.clone();
             let vrx = combine_rx.clone();
             let res_tx = result_tx.clone();
+            let seen = seen.clone();
 
-            let worker = s.spawn(|_| combinaison_worker(vtx, vrx, res_tx));
+            let worker = s.spawn(|_| combinaison_worker(vtx, vrx, res_tx, seen));
             workers.push(worker);
         }
 
@@ -287,23 +301,6 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
         results.lock().unwrap().to_owned()
     })
     .unwrap()
-}
-
-fn seen(elements: &[Number]) -> bool {
-    lazy_static::lazy_static! {
-        /// This is an example for using doc comment attributes
-        static ref ALL: Arc<Mutex<HashSet<Vec<i32>>>> = Arc::new(Mutex::new(HashSet::new()));
-    }
-
-    let mut set = ALL.lock().unwrap();
-    let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
-    values.sort();
-    if set.contains(&values) {
-        true
-    } else {
-        set.insert(values);
-        false
-    }
 }
 
 fn parse_args() -> (Vec<i32>, i32) {
