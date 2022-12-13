@@ -219,25 +219,6 @@ fn combinaison_worker(
     }
 }
 
-#[allow(dead_code)]
-fn example() {
-    let q = Number {
-        value: 15,
-        parent: Some((
-            Operation::Multiplication,
-            Box::new(Number::from(3)),
-            Box::new(Number::from(5)),
-        )),
-    };
-
-    let show = Number {
-        value: 18,
-        parent: Some((Operation::Addition, Box::new(q), Box::new(Number::from(3)))),
-    };
-
-    display_number(show)
-}
-
 fn display_number(show: Number) {
     fn _recurse_display(n: Number, display: &mut Vec<String>) {
         if n.parent.is_none() {
