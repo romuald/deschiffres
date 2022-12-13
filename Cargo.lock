@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "deschiffresetdeslettres"
-version = "0.1.0"
+name = "deschiffres"
+version = "0.5.0"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
