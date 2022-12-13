@@ -1,7 +1,7 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use crossbeam_utils::thread::scope;
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
@@ -134,7 +134,9 @@ fn operate(
             remove_from_vec(&mut subelements, b);
 
             subelements.push(value);
-            tx.send(subelements).unwrap();
+            if ! seen(&subelements) {
+                tx.send(subelements).unwrap();
+            }
         }
     }
 }
@@ -268,6 +270,23 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
         results.lock().unwrap().to_owned()
     })
     .unwrap()
+}
+
+fn seen(elements: &[Number]) -> bool {
+    lazy_static::lazy_static! {
+        /// This is an example for using doc comment attributes
+        static ref ALL: Arc<Mutex<HashSet<Vec<i32>>>> = Arc::new(Mutex::new(HashSet::new()));
+    }
+
+    let mut set = ALL.lock().unwrap();
+    let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+    values.sort();
+    if set.contains(&values) {
+        true
+    } else {
+        set.insert(values);
+        false
+    }
 }
 
 fn parse_args() -> (Vec<i32>, i32) {
