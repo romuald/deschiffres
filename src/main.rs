@@ -197,9 +197,9 @@ fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
     }
 }
 
-// Listen the combinaison channel for new lists of Numbers, and combine them
-// (that will probably generate more combinaison events)
-fn combinaison_worker(
+// Listen the combination channel for new lists of Numbers, and combine them
+// (that will probably generate more combination events)
+fn combination_worker(
     tx: Sender<Vec<Number>>,
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
@@ -227,7 +227,7 @@ fn combinaison_worker(
     }
 }
 
-// An attempt at displaying a number and the combinaisons that lead to it
+// An attempt at displaying a number and the combinations that lead to it
 fn display_number(show: Number) {
     fn _recurse_display(n: Number, display: &mut Vec<String>) {
         if n.parent.is_none() {
@@ -249,9 +249,9 @@ fn display_number(show: Number) {
     println!("{}", display.join("\n"));
 }
 
-// Main algorithm, find all combinaisons for a given list of integers
+// Main algorithm, find all combinations for a given list of integers
 // Use workers + channels for multithreading
-fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
+fn all_combinations(base_numbers: &[i32]) -> ResultSet {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 4,
@@ -278,7 +278,7 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
             let res_tx = result_tx.clone();
             let seen = seen.clone();
 
-            let worker = s.spawn(|_| combinaison_worker(vtx, vrx, res_tx, seen));
+            let worker = s.spawn(|_| combination_worker(vtx, vrx, res_tx, seen));
             workers.push(worker);
         }
 
@@ -340,10 +340,10 @@ fn main() {
     let (spec, to_find) = parse_args();
 
     let approximation = 0; // Possibly try to find an approximate match up to n (int)
-    let results = all_combinaisons(&spec);
+    let results = all_combinations(&spec);
 
     println!("Problem: find {to_find} with {spec:?}");
-    println!("Found {} possible combinaisons", results.len());
+    println!("Found {} possible combinations", results.len());
 
     for i in 0..approximation + 1 {
         let mut maybe_exact = "exact";
@@ -370,10 +370,10 @@ mod test {
     fn test_solve() {
         let numbers = vec![5, 25, 2, 50, 10];
 
-        let combinaisons = all_combinaisons(&numbers);
+        let combinations = all_combinations(&numbers);
 
-        assert_eq!(combinaisons.len(), 1085);
-        assert!(combinaisons.contains_key(&280));
+        assert_eq!(combinations.len(), 1085);
+        assert!(combinations.contains_key(&280));
     }
 
 }
