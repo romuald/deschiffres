@@ -40,6 +40,7 @@ struct Number {
 }
 
 impl Number {
+    // The length of a number is how many operations lead to it
     fn len(&self) -> usize {
         match &self.parent {
             None => 0,
@@ -85,6 +86,7 @@ impl From<i32> for Number {
     }
 }
 
+// Remove a single matching element from a vector of numbers
 fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
     for (i, elt) in vec.iter().enumerate() {
         if elt.value == to_remove.value {
@@ -92,9 +94,14 @@ fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
             return;
         }
     }
-    panic!("Not removed??")
+
+    panic!("{to_remove:?} was not present in elements")
 }
 
+// Compute a single operation on 2 numbers (of a given list of numbers)
+// This operation may fail (eg: number less than 0, non-integer division, …)
+// In case it succeed, remove those 2 from the list and append the result
+// then send this new element list to the "operation" channel
 fn operate(
     tx: &Sender<Vec<Number>>,
     operation: Operation,
@@ -152,7 +159,7 @@ fn operate(
 }
 
 // Receive from the result channel, and set the elements of the result map
-// If a result was already seen, use the shortest one
+// If an duplicate result was is seen, use the shortest Number (least number of operations)
 fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
     loop {
         let value = rtx.recv();
@@ -205,6 +212,7 @@ fn combinaison_worker(
         };
 
         {
+            // Do not combien again if this set of elements was already seen
             let mut set = seen.lock().unwrap();
             let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
             values.sort();
@@ -219,6 +227,7 @@ fn combinaison_worker(
     }
 }
 
+// An attempt at displaying a number and the combinaisons that lead to it
 fn display_number(show: Number) {
     fn _recurse_display(n: Number, display: &mut Vec<String>) {
         if n.parent.is_none() {
@@ -236,21 +245,28 @@ fn display_number(show: Number) {
 
     let mut display = vec![];
     _recurse_display(show, &mut display);
+
     println!("{}", display.join("\n"));
 }
 
+// Main algorithm, find all combinaisons for a given list of integers
+// Use workers + channels for multithreading
 fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 4,
     };
 
+    // All possible results
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
+
+    // The set of list of elements we've already seen (avoid re-computing twice)
     let seen: SeenType = Arc::new(Mutex::new(HashSet::new()));
 
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
 
+    // Initial list of numbers
     let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
     combine_tx.send(initial).unwrap();
 
@@ -288,7 +304,6 @@ fn parse_args() -> (Vec<i32>, i32) {
     let args = std::env::args().skip(1);
     let mut numbers: Vec<i32> = vec![];
 
-    // XXX map + filter negative
     let mut find_me = -1;
     for argument in args {
         let number = match argument.parse() {
@@ -300,6 +315,7 @@ fn parse_args() -> (Vec<i32>, i32) {
             continue;
             //XXX if find_me != -1 {}
         }
+
         if number < 1 {
             continue;
         }
@@ -312,37 +328,36 @@ fn parse_args() -> (Vec<i32>, i32) {
         exit(1);
     }
 
+    if numbers.len() < 2 {
+        eprintln!("There should be at least 2 numbers, don't you think?");
+        exit(1);
+    }
+
     (numbers, find_me)
 }
 
 fn main() {
     let (spec, to_find) = parse_args();
 
-    let approximation = 0; // Possibly try to find an approximate match up to n  (int)
+    let approximation = 0; // Possibly try to find an approximate match up to n (int)
     let results = all_combinaisons(&spec);
 
     println!("Problem: find {to_find} with {spec:?}");
     println!("Found {} possible combinaisons", results.len());
 
-    let mut found = false;
-    'outer: for i in 0..approximation + 1 {
+    for i in 0..approximation + 1 {
+        let mut maybe_exact = "exact";
         for sign in [-1, 1].iter() {
             let value = to_find + i * sign;
             if let Some(result) = results.get(&value) {
-                let what = if result.value == to_find {
-                    "exact"
-                } else {
-                    "approximate"
-                };
-                println!("Found an {what} match:");
+                println!("Found an {maybe_exact} match:");
                 display_number(result.to_owned());
-                found = true;
-                break 'outer;
+
+                return;
             }
+            maybe_exact = "approximate";
         }
     }
 
-    if !found {
-        println!("Did not find a match")
-    }
+    println!("Did not find a match");
 }
