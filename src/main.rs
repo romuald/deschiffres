@@ -102,8 +102,14 @@ fn operate(
     let bb = b.value;
 
     let value = match operation {
-        Operation::Addition => Some(aa + bb),
-        Operation::Multiplication => Some(aa * bb),
+        Operation::Addition => Some(aa + bb), // VERY unlikelly overflow
+        Operation::Multiplication => {
+            // Unlikelly overflow
+            match (aa as i64 * bb as i64).try_into() {
+                Ok(x) => Some(x),
+                Err(_) => None,
+            }
+        },
         Operation::Substraction => {
             if aa - bb > 0 {
                 Some(aa - bb)
