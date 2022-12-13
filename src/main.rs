@@ -19,12 +19,16 @@ enum Operation {
 }
 impl std::fmt::Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", match &self {
-            Operation::Addition => "+",
-            Operation::Multiplication => "*",
-            Operation::Substraction => "-",
-            Operation::Divison => "/",
-        })
+        write!(
+            f,
+            "{}",
+            match &self {
+                Operation::Addition => "+",
+                Operation::Multiplication => "*",
+                Operation::Substraction => "-",
+                Operation::Divison => "/",
+            }
+        )
     }
 }
 
@@ -109,7 +113,7 @@ fn operate(
                 Ok(x) => Some(x),
                 Err(_) => None,
             }
-        },
+        }
         Operation::Substraction => {
             if aa - bb > 0 {
                 Some(aa - bb)
@@ -140,7 +144,7 @@ fn operate(
             remove_from_vec(&mut subelements, b);
 
             subelements.push(value);
-            if ! seen(&subelements) {
+            if !seen(&subelements) {
                 tx.send(subelements).unwrap();
             }
         }
@@ -188,7 +192,11 @@ fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
 
 // Listen the combinaison channel for new lists of Numbers, and combine them
 // (that will probably generate more combinaison events)
-fn combinaison_worker(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, result_tx: Sender<Number>) {
+fn combinaison_worker(
+    tx: Sender<Vec<Number>>,
+    rx: Receiver<Vec<Number>>,
+    result_tx: Sender<Number>,
+) {
     loop {
         let elements = match rx.recv_timeout(Duration::from_millis(5)) {
             Ok(x) => x,
@@ -201,15 +209,18 @@ fn combinaison_worker(tx: Sender<Vec<Number>>, rx: Receiver<Vec<Number>>, result
 
 #[allow(dead_code)]
 fn example() {
-
     let q = Number {
         value: 15,
-        parent: Some((Operation::Multiplication, Box::new(Number::from(3)), Box::new(Number::from(5))))
+        parent: Some((
+            Operation::Multiplication,
+            Box::new(Number::from(3)),
+            Box::new(Number::from(5)),
+        )),
     };
 
     let show = Number {
         value: 18,
-        parent: Some((Operation::Addition, Box::new(q), Box::new(Number::from(3))))
+        parent: Some((Operation::Addition, Box::new(q), Box::new(Number::from(3)))),
     };
 
     display_number(show)
@@ -218,7 +229,7 @@ fn example() {
 fn display_number(show: Number) {
     fn _recurse_display(n: Number, display: &mut Vec<String>) {
         if n.parent.is_none() {
-            return
+            return;
         }
         //let space = std::iter::repeat(" ").take(n.len()-1).collect::<String>();
 
@@ -242,10 +253,10 @@ fn all_combinaisons(base_numbers: &[i32]) -> ResultSet {
     };
 
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
-    
+
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
-    
+
     let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
     combine_tx.send(initial).unwrap();
 
@@ -334,13 +345,17 @@ fn main() {
 
     println!("Problem: find {to_find} with {spec:?}");
     println!("Found {} possible combinaisons", results.len());
-    
+
     let mut found = false;
     'outer: for i in 0..approximation + 1 {
         for sign in [-1, 1].iter() {
             let value = to_find + i * sign;
             if let Some(result) = results.get(&value) {
-                let what = if result.value == to_find { "exact" } else { "approximate" };
+                let what = if result.value == to_find {
+                    "exact"
+                } else {
+                    "approximate"
+                };
                 println!("Found an {what} match:");
                 display_number(result.to_owned());
                 found = true;
@@ -349,7 +364,7 @@ fn main() {
         }
     }
 
-    if ! found {
+    if !found {
         println!("Did not find a match")
     }
 }
