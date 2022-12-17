@@ -15,8 +15,8 @@ type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 enum Operation {
     Addition,
     Multiplication,
-    Substraction,
-    Divison,
+    Subtraction,
+    Division,
 }
 impl std::fmt::Display for Operation {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -26,8 +26,8 @@ impl std::fmt::Display for Operation {
             match &self {
                 Operation::Addition => "+",
                 Operation::Multiplication => "*",
-                Operation::Substraction => "-",
-                Operation::Divison => "/",
+                Operation::Subtraction => "-",
+                Operation::Division => "/",
             }
         )
     }
@@ -114,22 +114,22 @@ fn operate(
     let bb = b.value;
 
     let value = match operation {
-        Operation::Addition => Some(aa + bb), // VERY unlikelly overflow
+        Operation::Addition => Some(aa + bb), // VERY unlikely overflow
         Operation::Multiplication => {
-            // Unlikelly overflow
+            // Unlikely overflow
             match (aa as i64 * bb as i64).try_into() {
                 Ok(x) => Some(x),
                 Err(_) => None,
             }
         }
-        Operation::Substraction => {
+        Operation::Subtraction => {
             if aa - bb > 0 {
                 Some(aa - bb)
             } else {
                 None
             }
         }
-        Operation::Divison => {
+        Operation::Division => {
             if bb > 0 && aa % bb == 0 {
                 Some(aa / bb)
             } else {
@@ -189,10 +189,10 @@ fn combine(tx: Sender<Vec<Number>>, elements: &[Number], rtx: Sender<Number>) {
         if let [a, b] = pair[..] {
             operate(&tx, Operation::Addition, a, b, elements, &rtx);
             operate(&tx, Operation::Multiplication, a, b, elements, &rtx);
-            operate(&tx, Operation::Substraction, a, b, elements, &rtx);
-            operate(&tx, Operation::Substraction, b, a, elements, &rtx);
-            operate(&tx, Operation::Divison, a, b, elements, &rtx);
-            operate(&tx, Operation::Divison, b, a, elements, &rtx);
+            operate(&tx, Operation::Subtraction, a, b, elements, &rtx);
+            operate(&tx, Operation::Subtraction, b, a, elements, &rtx);
+            operate(&tx, Operation::Division, a, b, elements, &rtx);
+            operate(&tx, Operation::Division, b, a, elements, &rtx);
         }
     }
 }
@@ -212,7 +212,7 @@ fn combination_worker(
         };
 
         {
-            // Do not combien again if this set of elements was already seen
+            // Do not combine again if this set of elements was already seen
             let mut set = seen.lock().unwrap();
             let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
             values.sort();
