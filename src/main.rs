@@ -336,30 +336,42 @@ fn parse_args() -> (Vec<i32>, i32) {
     (numbers, find_me)
 }
 
+
+fn solve(base_numbers: &[i32], to_find: i32, approximation: i32) -> Option<Number> {
+    let results = all_combinations(base_numbers);
+    // println!("Found {} possible combinations", results.len());
+
+    for i in 0..approximation + 1
+    {
+        if let Some(result) = results.get(&(to_find + i)) {
+            return Some(result.to_owned());
+        } else if let Some(result) = results.get(&(to_find - i)) {
+            return Some(result.to_owned());
+        }
+    }
+
+    None
+}
+
 fn main() {
     let (spec, to_find) = parse_args();
 
     let approximation = 0; // Possibly try to find an approximate match up to n (int)
-    let results = all_combinations(&spec);
-
     println!("Problem: find {to_find} with {spec:?}");
-    println!("Found {} possible combinations", results.len());
 
-    for i in 0..approximation + 1 {
-        let mut maybe_exact = "exact";
-        for sign in [-1, 1].iter() {
-            let value = to_find + i * sign;
-            if let Some(result) = results.get(&value) {
-                println!("Found an {maybe_exact} match:");
-                display_number(result.to_owned());
+    let result = solve(&spec, to_find, approximation);
 
-                return;
-            }
-            maybe_exact = "approximate";
+
+    if let Some(result) = result {
+        if result.value == to_find {
+            println!("Found an exact match:");
+        } else {
+            println!("Found an approximate match:");
         }
+        display_number(result);
+    } else {
+        println!("Did not find a match");
     }
-
-    println!("Did not find a match");
 }
 
 #[cfg(test)]
@@ -367,7 +379,7 @@ mod test {
     use crate::*;
 
     #[test]
-    fn test_solve() {
+    fn test_combinations() {
         let numbers = vec![5, 25, 2, 50, 10];
 
         let combinations = all_combinations(&numbers);
