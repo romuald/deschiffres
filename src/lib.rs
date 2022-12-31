@@ -52,7 +52,7 @@ impl std::fmt::Display for Operation {
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
 pub struct Number {
     pub value: i32,
-    pub parent: Option<(Operation, Box<Number>, Box<Number>)>,
+    pub parent: Option<Box<(Operation, Number, Number)>>,
 }
 
 impl Number {
@@ -60,7 +60,7 @@ impl Number {
     fn len(&self) -> usize {
         match &self.parent {
             None => 0,
-            Some((_, a, b)) => 1 + a.len() + b.len(),
+            Some(bop) => 1 + bop.1.len() + bop.2.len(),
         }
     }
 }
@@ -79,8 +79,8 @@ impl std::fmt::Display for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match &self.parent {
             None => write!(f, "{}", self.value),
-            Some((op, a, b)) => {
-                write!(f, "{} ({} {} {})", self.value, a, op, b)
+            Some(bop) => {
+                write!(f, "{} ({} {} {})", self.value, bop.1, bop.0, bop.2)
             }
         }
     }
@@ -157,7 +157,7 @@ fn operate(
     if let Some(value) = value {
         let value = Number {
             value,
-            parent: Some((operation, Box::new(a.clone()), Box::new(b.clone()))),
+            parent: Some(Box::new((operation, a.clone(), b.clone()))),
         };
         rtx.send(value.clone()).unwrap();
 
@@ -257,12 +257,12 @@ pub fn display_number(show: Number) {
         }
         //let space = std::iter::repeat(" ").take(n.len()-1).collect::<String>();
 
-        let (op, parent_a, parent_b) = n.parent.unwrap();
+        let (op, parent_a, parent_b) = *n.parent.unwrap();
         let fmt = format!("{} {} {} = {}", parent_a.value, op, parent_b.value, n.value);
 
         display.insert(0, fmt);
-        _recurse_display(*parent_a, display);
-        _recurse_display(*parent_b, display);
+        _recurse_display(parent_a, display);
+        _recurse_display(parent_b, display);
     }
 
     let mut display = vec![];
@@ -392,7 +392,7 @@ pub fn add(a: i32, b: i32) -> JsValue {
     let a = Number::from(a);
     let b = Number::from(b);
 
-    let ret = Number {value: a.value + b.value, parent: Some((Operation::Addition, Box::new(a), Box::new(b)))};
+    let ret = Number {value: a.value + b.value, parent: Some(Box::new((Operation::Addition, a, b)))};
 
     serde_wasm_bindgen::to_value(&ret).unwrap()
 }
