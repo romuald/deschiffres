@@ -7,10 +7,25 @@ use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
 
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "wasm32")] {
+        #[global_allocator]
+        static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+    }
+}
+#[cfg(feature = "wasm")]
+use wasm_bindgen::prelude::*;
+#[cfg(feature = "wasm")]
+use serde::{Serialize, Deserialize};
+#[cfg(feature = "wasm")]
+mod console_log;
+
 type ResultSet = HashMap<i32, Number>;
 type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 
+
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
 pub enum Operation {
     Addition,
     Multiplication,
@@ -33,6 +48,8 @@ impl std::fmt::Display for Operation {
 }
 
 // Basic Number representation, with an optional parent which is 2 other numbers and an operation
+
+#[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
 pub struct Number {
     pub value: i32,
     pub parent: Option<(Operation, Box<Number>, Box<Number>)>,
@@ -159,12 +176,18 @@ fn operate(
 
 // Receive from the result channel, and set the elements of the result map
 // If an duplicate result was is seen, use the shortest Number (least number of operations)
-fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>) {
+fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>, blocking: bool) {
     loop {
-        let value = rtx.recv();
-        let value = match value {
-            Ok(x) => x,
-            Err(_) => break,
+        let value = if blocking {
+            match rtx.recv() {
+                Ok(x) => x,
+                Err(_) => break,
+            }
+        } else {
+            match rtx.try_recv() {
+                Ok(x) => x,
+                Err(_) => break,
+            }
         };
 
         {
@@ -248,12 +271,43 @@ pub fn display_number(show: Number) {
     println!("{}", display.join("\n"));
 }
 
+fn js_worker( tx: Sender<Vec<Number>>,
+    rx: Receiver<Vec<Number>>,
+    result_tx: Sender<Number>,
+    result_rx: Receiver<Number>,
+    seen: SeenType,
+    results: Arc<Mutex<ResultSet>>) {
+        loop {
+            result_worker(result_rx.clone(), results.clone(), false);
+
+            let elements = match rx.try_recv() {
+                Ok(x) => x,
+                Err(_) => break,
+            };
+
+            {
+                // Do not combine again if this set of elements was already seen
+                let mut set = seen.lock().unwrap();
+                let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+                values.sort();
+
+                // HashSet.insert returns true if element was already present
+                if !set.insert(values) {
+                    continue;
+                }
+            }
+
+            combine(tx.clone(), &elements, result_tx.clone());
+        }
+    }//try_recv
+
+
 // Main algorithm, find all combinations for a given list of integers
 // Use workers + channels for multithreading
 fn all_combinations(base_numbers: &[i32]) -> ResultSet {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
-        Err(_) => 4,
+        Err(_) => 1,
     };
 
     // All possible results
@@ -264,10 +318,15 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
 
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
-
     // Initial list of numbers
     let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
     combine_tx.send(initial).unwrap();
+
+    if cfg!(target_arch = "wasm32") || ncores < 3 {
+        js_worker(combine_tx, combine_rx, result_tx, result_rx, seen, results.clone());
+
+        return results.lock().unwrap().to_owned();
+    }
 
     scope(|s| {
         let mut workers = Vec::new();
@@ -284,7 +343,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
         {
             // seems to be no gain from parallelism here
             let rx = result_rx.clone();
-            let worker = s.spawn(|_| result_worker(rx, results.clone()));
+            let worker = s.spawn(|_| result_worker(rx, results.clone(), true));
             workers.push(worker)
         }
         drop(combine_tx);
@@ -295,8 +354,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
         }
 
         results.lock().unwrap().to_owned()
-    })
-    .unwrap()
+    }).unwrap()
 }
 
 
@@ -315,6 +373,28 @@ pub fn solve(base_numbers: &[i32], to_find: i32, approximation: i32) -> Option<N
     }
 
     None
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn solve_js(base_numbers: &[i32], to_find: i32, approximation: i32) -> JsValue {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+
+    let solved = solve(base_numbers, to_find, approximation);
+
+    serde_wasm_bindgen::to_value(&solved).unwrap()
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn add(a: i32, b: i32) -> JsValue {
+
+    let a = Number::from(a);
+    let b = Number::from(b);
+
+    let ret = Number {value: a.value + b.value, parent: Some((Operation::Addition, Box::new(a), Box::new(b)))};
+
+    serde_wasm_bindgen::to_value(&ret).unwrap()
 }
 
 
