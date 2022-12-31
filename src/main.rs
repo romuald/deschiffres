@@ -1,4 +1,4 @@
-use std::process::exit;
+use std::{process::exit, time::Instant};
 
 use deschiffres::{solve, display_number};
 
@@ -46,8 +46,10 @@ fn main() {
     let approximation = 0; // Possibly try to find an approximate match up to n (int)
     println!("Problem: find {to_find} with {spec:?}");
 
+    let start = Instant::now();
     let result = solve(&spec, to_find, approximation);
-
+    let end = Instant::now();
+    println!("Solved in {:?}", end - start);
 
     if let Some(result) = result {
         if result.value == to_find {
