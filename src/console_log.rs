@@ -18,7 +18,6 @@ extern "C" {
     fn log_many(a: &str, b: &str);
 }
 
-
 // Next let's define a macro that's like `println!`, only it works for
 // `console.log`. Note that `println!` doesn't actually work on the wasm target
 // because the standard library currently just eats all output. To get

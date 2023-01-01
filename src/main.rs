@@ -1,7 +1,6 @@
 use std::{process::exit, time::Instant};
 
-use deschiffres::{solve, display_number};
-
+use deschiffres::{display_number, solve};
 
 fn parse_args() -> (Vec<i32>, i32) {
     let args = std::env::args().skip(1);
@@ -38,7 +37,6 @@ fn parse_args() -> (Vec<i32>, i32) {
 
     (numbers, find_me)
 }
-
 
 fn main() {
     let (spec, to_find) = parse_args();

@@ -2,7 +2,6 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use crossbeam_utils::thread::scope;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
@@ -19,15 +18,72 @@ cfg_if::cfg_if! {
 }
 
 #[cfg(feature = "wasm")]
-use wasm_bindgen::prelude::*;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "wasm")]
-use serde::{Serialize, Deserialize};
+use wasm_bindgen::prelude::*;
 #[cfg(feature = "wasm")]
 mod console_log;
 
 type ResultSet = HashMap<i32, Number>;
 type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
+
+// A materialized operation (a + b)
+pub struct MOperation(pub Operation, pub i32, pub i32);
+
+#[derive(Clone)]
+#[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
+pub struct Number {
+    pub value: i32,
+    pub operations: Vec<MOperation>,
+}
+
+impl Number {
+    fn from_int(n: i32) -> Self {
+        Self {
+            value: n,
+            operations: vec![],
+        }
+    }
+
+    fn from(value: i32, op: Operation, a: &Number, b: &Number) -> Self {
+        let mut operations = vec![MOperation(op, a.value, b.value)];
+        operations.extend(a.operations.iter());
+        operations.extend(b.operations.iter());
+
+        Self { value, operations }
+    }
+
+    // The length of a number is how many operations lead to it
+    fn len(&self) -> usize {
+        self.operations.len()
+    }
+}
+
+// Only show the value
+impl std::fmt::Debug for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
+pub fn display_number(show: Number) {
+    let mut display = vec![];
+    for op in show.operations.iter().rev() {
+        let val = match op.0 {
+            Operation::Addition => op.1 + op.2,
+            Operation::Multiplication => op.1 * op.2,
+            Operation::Subtraction => op.1 - op.2,
+            Operation::Division => op.1 / op.2,
+        };
+        let fmt = format!("{} {} {} = {}", op.1, op.0, op.2, val);
+        display.push(fmt);
+    }
+
+    println!("{}", display.join("\n"));
+}
 
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
@@ -49,61 +105,6 @@ impl std::fmt::Display for Operation {
                 Operation::Division => "/",
             }
         )
-    }
-}
-
-// Basic Number representation, with an optional parent which is 2 other numbers and an operation
-
-#[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
-pub struct Number {
-    pub value: i32,
-    pub parent: Option<Box<(Operation, Number, Number)>>,
-}
-
-impl Number {
-    // The length of a number is how many operations lead to it
-    fn len(&self) -> usize {
-        match &self.parent {
-            None => 0,
-            Some(bop) => 1 + bop.1.len() + bop.2.len(),
-        }
-    }
-}
-
-impl Clone for Number {
-    fn clone(&self) -> Self {
-        Self {
-            value: self.value,
-            parent: self.parent.clone(),
-        }
-    }
-}
-
-// Recursively display the number and its parent if any
-impl std::fmt::Display for Number {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match &self.parent {
-            None => write!(f, "{}", self.value),
-            Some(bop) => {
-                write!(f, "{} ({} {} {})", self.value, bop.1, bop.0, bop.2)
-            }
-        }
-    }
-}
-
-// Only show the value
-impl std::fmt::Debug for Number {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
-impl From<i32> for Number {
-    fn from(item: i32) -> Self {
-        Number {
-            value: item,
-            parent: None,
-        }
     }
 }
 
@@ -160,10 +161,7 @@ fn operate(
     };
 
     if let Some(value) = value {
-        let value = Number {
-            value,
-            parent: Some(Box::new((operation, a.clone(), b.clone()))),
-        };
+        let value = Number::from(value, operation, a, b);
         rtx.send(value.clone()).unwrap();
 
         if elements.len() > 2 {
@@ -232,8 +230,35 @@ fn combination_worker(
     result_tx: Sender<Number>,
     seen: SeenType,
 ) {
+    while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
+        {
+            // Do not combine again if this set of elements was already seen
+            let mut set = seen.lock().unwrap();
+            let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+            values.sort();
+
+            // HashSet.insert returns true if element was already present
+            if !set.insert(values) {
+                continue;
+            }
+        }
+
+        combine(tx.clone(), &elements, result_tx.clone());
+    }
+}
+
+fn js_worker(
+    tx: Sender<Vec<Number>>,
+    rx: Receiver<Vec<Number>>,
+    result_tx: Sender<Number>,
+    result_rx: Receiver<Number>,
+    seen: SeenType,
+    results: Arc<Mutex<ResultSet>>,
+) {
     loop {
-        let elements = match rx.recv_timeout(Duration::from_millis(5)) {
+        result_worker(result_rx.clone(), results.clone(), false);
+
+        let elements = match rx.try_recv() {
             Ok(x) => x,
             Err(_) => break,
         };
@@ -252,60 +277,7 @@ fn combination_worker(
 
         combine(tx.clone(), &elements, result_tx.clone());
     }
-}
-
-// An attempt at displaying a number and the combinations that lead to it
-pub fn display_number(show: Number) {
-    fn _recurse_display(n: Number, display: &mut Vec<String>) {
-        if n.parent.is_none() {
-            return;
-        }
-        //let space = std::iter::repeat(" ").take(n.len()-1).collect::<String>();
-
-        let (op, parent_a, parent_b) = *n.parent.unwrap();
-        let fmt = format!("{} {} {} = {}", parent_a.value, op, parent_b.value, n.value);
-
-        display.insert(0, fmt);
-        _recurse_display(parent_a, display);
-        _recurse_display(parent_b, display);
-    }
-
-    let mut display = vec![];
-    _recurse_display(show, &mut display);
-
-    println!("{}", display.join("\n"));
-}
-
-fn js_worker( tx: Sender<Vec<Number>>,
-    rx: Receiver<Vec<Number>>,
-    result_tx: Sender<Number>,
-    result_rx: Receiver<Number>,
-    seen: SeenType,
-    results: Arc<Mutex<ResultSet>>) {
-        loop {
-            result_worker(result_rx.clone(), results.clone(), false);
-
-            let elements = match rx.try_recv() {
-                Ok(x) => x,
-                Err(_) => break,
-            };
-
-            {
-                // Do not combine again if this set of elements was already seen
-                let mut set = seen.lock().unwrap();
-                let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
-                values.sort();
-
-                // HashSet.insert returns true if element was already present
-                if !set.insert(values) {
-                    continue;
-                }
-            }
-
-            combine(tx.clone(), &elements, result_tx.clone());
-        }
-    }//try_recv
-
+} //try_recv
 
 // Main algorithm, find all combinations for a given list of integers
 // Use workers + channels for multithreading
@@ -315,7 +287,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
         Err(_) => 1,
     };
 
-    let n_workers= std::cmp::min(ncores - 1, MAX_WORKERS);
+    let n_workers = std::cmp::min(ncores - 1, MAX_WORKERS);
 
     // All possible results
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
@@ -326,11 +298,18 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
     // Initial list of numbers
-    let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
+    let initial = base_numbers.iter().map(|x| Number::from_int(*x)).collect();
     combine_tx.send(initial).unwrap();
 
-    if cfg!(target_arch = "wasm32") {
-        js_worker(combine_tx, combine_rx, result_tx, result_rx, seen, results.clone());
+    if cfg!(target_arch = "wasm32") || n_workers == 0 {
+        js_worker(
+            combine_tx,
+            combine_rx,
+            result_tx,
+            result_rx,
+            seen,
+            results.clone(),
+        );
 
         return results.lock().unwrap().to_owned();
     }
@@ -361,17 +340,15 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
         }
 
         results.lock().unwrap().to_owned()
-    }).unwrap()
+    })
+    .unwrap()
 }
-
-
 
 pub fn solve(base_numbers: &[i32], to_find: i32, approximation: i32) -> Option<Number> {
     let results = all_combinations(base_numbers);
     // println!("Found {} possible combinations", results.len());
 
-    for i in 0..approximation + 1
-    {
+    for i in 0..approximation + 1 {
         if let Some(result) = results.get(&(to_find + i)) {
             return Some(result.to_owned());
         } else if let Some(result) = results.get(&(to_find - i)) {
@@ -392,20 +369,6 @@ pub fn solve_js(base_numbers: &[i32], to_find: i32, approximation: i32) -> JsVal
     serde_wasm_bindgen::to_value(&solved).unwrap()
 }
 
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn add(a: i32, b: i32) -> JsValue {
-
-    let a = Number::from(a);
-    let b = Number::from(b);
-
-    let ret = Number {value: a.value + b.value, parent: Some(Box::new((Operation::Addition, a, b)))};
-
-    serde_wasm_bindgen::to_value(&ret).unwrap()
-}
-
-
-
 #[cfg(test)]
 mod test {
     use crate::*;
@@ -419,5 +382,4 @@ mod test {
         assert_eq!(combinations.len(), 1085);
         assert!(combinations.contains_key(&280));
     }
-
 }
