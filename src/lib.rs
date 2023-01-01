@@ -7,12 +7,17 @@ use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
 
+// XXX for some reason on Apple Silicon performance degrades with multiple workers
+// need to test on a multicore x86
+const MAX_WORKERS: usize = 1;
+
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
         #[global_allocator]
         static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
     }
 }
+
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 #[cfg(feature = "wasm")]
@@ -310,6 +315,8 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
         Err(_) => 1,
     };
 
+    let n_workers= std::cmp::min(ncores - 1, MAX_WORKERS);
+
     // All possible results
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
 
@@ -322,7 +329,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
     let initial = base_numbers.iter().map(|x| Number::from(*x)).collect();
     combine_tx.send(initial).unwrap();
 
-    if cfg!(target_arch = "wasm32") || ncores < 3 {
+    if cfg!(target_arch = "wasm32") {
         js_worker(combine_tx, combine_rx, result_tx, result_rx, seen, results.clone());
 
         return results.lock().unwrap().to_owned();
@@ -330,7 +337,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
 
     scope(|s| {
         let mut workers = Vec::new();
-        for _ in 0..ncores - 1 {
+        for _ in 0..n_workers {
             let vtx = combine_tx.clone();
             let vrx = combine_rx.clone();
             let res_tx = result_tx.clone();
