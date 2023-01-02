@@ -1,11 +1,13 @@
 # deschiffres
-A "des chiffres et des lettres" solver, mais que pour les chiffres
+A solver for the French game "des chiffres et des lettres", "Le compte est bon"
 
 Given a list of numbers and a target "resolution" number, it will try to find the best way to combine those numbers using basic math to get to the target
 
 ## Compile
 
 You can simply build the binary using `cargo build` or `cargo build -r`
+
+Alternatively a `Makefile` is provided because I'm lazy
 
 
 ## Execution
@@ -27,5 +29,13 @@ Found an exact match:
 5 + 276 = 281
 ```
 
-The compute is pretty fast for the "standard" 6 numbers (<200ms with 8 cores on a M1)
+The compute is pretty fast for the "standard" 6 numbers (<100ms a M1)
 It theoretically works with any number of numbers, but bear in mind that the memory growth is somewhat exponential (probably)
+
+
+## Web version
+
+A web version is still in development, you can compile it with `make wasm`, and then browse the `html` directory.
+Keep in mind this needs to be run on a webserver because it's using Javascript modules. You can run a dumb server with `python3 -m http.server --directory html`
+
+**Warning** you will need the [wasm-pack](https://rustwasm.github.io/wasm-pack/) tool for rust: `cargo install wasm-pack`
