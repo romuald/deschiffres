@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
 
-// XXX for some reason on Apple Silicon performance degrades with multiple workers
-// need to test on a multicore x86
-const MAX_WORKERS: usize = 1;
+// Performance degrades with multiple workers (cache issue?)
+// Keep them to an "optimal" limit
+const MAX_WORKERS: usize = 3;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -29,12 +29,12 @@ type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
-
-// A materialized operation (a + b)
+// A materialized operation (a + b) without the result
 pub struct MOperation(pub Operation, pub i32, pub i32);
 
 #[derive(Clone)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
+// Number with the operations that lead to it
 pub struct Number {
     pub value: i32,
     pub operations: Vec<MOperation>,
@@ -60,6 +60,23 @@ impl Number {
     fn len(&self) -> usize {
         self.operations.len()
     }
+
+    // A text representation of the calculus that lead to this Number
+    pub fn as_text(self) -> String {
+        let mut output = vec![];
+        for op in self.operations.iter().rev() {
+            let val = match op.0 {
+                Operation::Addition => op.1 + op.2,
+                Operation::Multiplication => op.1 * op.2,
+                Operation::Subtraction => op.1 - op.2,
+                Operation::Division => op.1 / op.2,
+            };
+            let fmt = format!("{} {} {} = {}", op.1, op.0, op.2, val);
+            output.push(fmt);
+        }
+
+        output.join("\n")
+    }
 }
 
 // Only show the value
@@ -69,28 +86,12 @@ impl std::fmt::Debug for Number {
     }
 }
 
-pub fn display_number(show: Number) {
-    let mut display = vec![];
-    for op in show.operations.iter().rev() {
-        let val = match op.0 {
-            Operation::Addition => op.1 + op.2,
-            Operation::Multiplication => op.1 * op.2,
-            Operation::Subtraction => op.1 - op.2,
-            Operation::Division => op.1 / op.2,
-        };
-        let fmt = format!("{} {} {} = {}", op.1, op.0, op.2, val);
-        display.push(fmt);
-    }
-
-    println!("{}", display.join("\n"));
-}
-
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
 pub enum Operation {
-    #[cfg_attr(feature = "wasm", serde(rename="+"))]
+    #[cfg_attr(feature = "wasm", serde(rename = "+"))]
     Addition,
-    #[cfg_attr(feature = "wasm", serde(rename="*"))]
+    #[cfg_attr(feature = "wasm", serde(rename = "*"))]
     Multiplication,
     #[cfg_attr(feature = "wasm", serde(rename = "-"))]
     Subtraction,
@@ -140,14 +141,8 @@ fn operate(
     let bb = b.value;
 
     let value = match operation {
-        Operation::Addition => Some(aa + bb), // VERY unlikely overflow
-        Operation::Multiplication => {
-            // Unlikely overflow
-            match (aa as i64 * bb as i64).try_into() {
-                Ok(x) => Some(x),
-                Err(_) => None,
-            }
-        }
+        Operation::Addition => i32::checked_add(aa, bb),
+        Operation::Multiplication => i32::checked_mul(aa, bb),
         Operation::Subtraction => {
             if aa - bb > 0 {
                 Some(aa - bb)
@@ -235,12 +230,11 @@ fn combination_worker(
     seen: SeenType,
 ) {
     while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
+        // Do not combine again if this set of elements was already seen
+        let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+        values.sort();
         {
-            // Do not combine again if this set of elements was already seen
             let mut set = seen.lock().unwrap();
-            let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
-            values.sort();
-
             // HashSet.insert returns true if element was already present
             if !set.insert(values) {
                 continue;
@@ -285,13 +279,13 @@ fn js_worker(
 
 // Main algorithm, find all combinations for a given list of integers
 // Use workers + channels for multithreading
-fn all_combinations(base_numbers: &[i32]) -> ResultSet {
+pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
     let ncores = match available_parallelism() {
         Ok(x) => std::cmp::max(2, x.get()),
         Err(_) => 1,
     };
 
-    let n_workers = std::cmp::min(ncores - 1, MAX_WORKERS);
+    let n_workers = std::cmp::min(ncores - 1, max_workers);
 
     // All possible results
     let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
@@ -349,7 +343,7 @@ fn all_combinations(base_numbers: &[i32]) -> ResultSet {
 }
 
 pub fn solve(base_numbers: &[i32], to_find: i32, approximation: i32) -> Option<Number> {
-    let results = all_combinations(base_numbers);
+    let results = all_combinations(base_numbers, MAX_WORKERS);
     // println!("Found {} possible combinations", results.len());
 
     for i in 0..approximation + 1 {
@@ -381,7 +375,7 @@ mod test {
     fn test_combinations() {
         let numbers = vec![5, 25, 2, 50, 10];
 
-        let combinations = all_combinations(&numbers);
+        let combinations = all_combinations(&numbers, 1);
 
         assert_eq!(combinations.len(), 1085);
         assert!(combinations.contains_key(&280));

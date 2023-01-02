@@ -1,6 +1,6 @@
 use std::{process::exit, time::Instant};
 
-use deschiffres::{display_number, solve};
+use deschiffres::solve;
 
 fn parse_args() -> (Vec<i32>, i32) {
     let args = std::env::args().skip(1);
@@ -15,7 +15,6 @@ fn parse_args() -> (Vec<i32>, i32) {
         if number > 100 {
             find_me = number;
             continue;
-            //XXX if find_me != -1 {}
         }
 
         if number < 1 {
@@ -55,7 +54,7 @@ fn main() {
         } else {
             println!("Found an approximate match:");
         }
-        display_number(result);
+        println!("{}", result.as_text());
     } else {
         println!("Did not find a match");
     }

@@ -10,4 +10,4 @@ test:
 	cargo test
 
 wasm:
-	wasm-pack build --target web  -- --features wasm
+	wasm-pack build --target web --no-typescript --release --features wasm
