@@ -88,9 +88,13 @@ pub fn display_number(show: Number) {
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
 pub enum Operation {
+    #[cfg_attr(feature = "wasm", serde(rename="+"))]
     Addition,
+    #[cfg_attr(feature = "wasm", serde(rename="*"))]
     Multiplication,
+    #[cfg_attr(feature = "wasm", serde(rename = "-"))]
     Subtraction,
+    #[cfg_attr(feature = "wasm", serde(rename = "/"))]
     Division,
 }
 impl std::fmt::Display for Operation {
