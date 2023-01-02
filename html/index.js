@@ -41,7 +41,7 @@ const apply_operation = (op, a, b) => (
   ]
 
   const form = document.querySelector('form')
-  const input_n = [...document.querySelectorAll('.base-numbers input[max="100"]')]
+  const input_n = [...document.querySelectorAll('input[max="100"]')]
   const input_t = document.querySelector('#target')
 
   document.querySelector("#gen-random").addEventListener("click", () => {
