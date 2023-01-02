@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <title>Le compte est bon</title>
+    <style type="text/css">
+      /* Chrome, Safari, Edge, Opera */
+      input::-webkit-outer-spin-button,
+      input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      /* Firefox */
+      input[type=number] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+      }
+
+      input:invalid {
+        border: 1px solid red;
+        outline: 1px solid red;
+      }
+      /* Outline element */
+      .number {
+        background: hsl(0, 0%, 91%);
+        background: linear-gradient(0deg, hsl(0, 0%, 95%) 0%, hsl(0, 0%, 98%) 100%);
+        display: inline-block;
+      }
+
+      .operator {
+        width: 1.5em;
+        color: hsl(243, 100%, 7%)
+      }
+      .operator, .number > * {
+        font-size: 24pt;
+        font-family: -apple-system;
+        text-align: center;
+        font-weight: bold;
+        display: inline-block;
+      }
+
+      .number > * {
+        font-size: 24pt;
+        width: 2.5em;
+        border: 1px solid #888;
+        color: #222;
+        border-radius: 7px;
+        padding: 8px 0;
+        background-color: #fff;
+        background-image: linear-gradient(0deg, hsl(243, 100%, 7%) 49%, hsl(233, 98%, 22%) 51%);
+        background-size: 100%;
+        background-repeat: repeat;
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .number.used > * {
+        background-image: linear-gradient(0deg, hsl(243, 0%, 7%) 49%, hsl(233, 0%, 22%) 51%);
+      }
+
+      hr {
+        margin: 30px 0;
+        border-bottom: 0;
+      }
+
+      .target-number {
+        margin-left: 30px;
+        margin-right: 30px;
+      }
+
+      input[type="submit"], input[type="button"] {
+        font-size: 24pt;
+        font-weight: bold;
+        padding: 8px 22px;
+
+        color: #fafafa;
+        background-color: hsl(243, 100%, 7%);
+        background-image: linear-gradient(0deg, hsl(243, 100%, 7%) 49%, hsl(233, 98%, 22%) 51%);
+        border-radius: 7px;
+        margin-right: 12px;
+        margin-top: 10px;
+      }
+      .result-row {
+        margin-bottom: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Le compte est bon ?</h1>
+    <form action="" method="get" onsubmit="return false">
+      <div class="base-numbers">
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number"><input type="number" min="1" max="100" required></span>
+        <span class="number target-number">
+          <input id="target" type="number" min="101" max="999" required>
+        </span>
+        <br>
+        <input id="gen-random" type="button" value="Aléatoire">
+        <input type="submit" value="Résoudre">
+      </div>
+    </form>
+    <hr>
+    <div id="results"></div>
+    <template id="result-template">
+      <div class="result-row">
+        <span class="number"><span data-ev>x</span></span>
+        <span class="operator" data-ev>x</span>
+        <span class="number"><span data-ev>x</span></span>
+        <span class="operator">=</span>
+        <span class="number"><span data-ev>x</span></span>
+      <div>
+    </template>
+    <template id="no-result">
+      Aucune solution n'a pété trouvée
+    </template>
+    <script type="module">
+      const apply_operation = (op, a, b) => (
+        {
+          "+": (a, b) => a + b,
+          "-": (a, b) => a - b,
+          "*": (a, b) => a * b,
+          "/": (a, b) => a / b,
+        }[op](a,b)
+      )
+
+      function showResult(result) {
+        const tmpl = document.getElementById("result-template")
+
+        const result_node = document.querySelector("#results")
+        result_node.innerHTML = ""
+
+        if (result === null || typeof result === "undefined") {
+          result_node.innerHTML = "Aucune solution n'a été trouvée"
+          return
+        }
+
+        for (let i=result.operations.length - 1; i >= 0; i--) {
+          const [op, a, b] = result.operations[i]
+          const row = tmpl.content.cloneNode(true)
+
+          const res = apply_operation(op, a, b)
+
+          const nodes = [...row.querySelectorAll('[data-ev]')]
+
+          nodes[0].innerText = a
+          nodes[1].innerText = op
+          nodes[2].innerText = b
+          nodes[3].innerText = res
+
+          result_node.appendChild(row)
+        }
+      }
+      const pool = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        25, 50, 75, 100
+      ]
+
+      const form = document.querySelector('form')
+      const input_n = [...document.querySelectorAll('.base-numbers input[max="100"]')]
+      const input_t = document.querySelector('#target')
+
+      document.querySelector("#gen-random").addEventListener("click", () => {
+        let mypool = [...pool]
+        let numbers = []
+
+
+        for (let i=0; i < 6; i++) {
+          let idx = Math.random() * mypool.length
+          //numbers.push(...mypool.splice(idx, 1))
+          input_n[i].value = mypool.splice(idx, 1)[0]
+        }
+        input_t.value = parseInt(101 + Math.random() * 898, 10)
+      })
+
+      // Asynchronous import + init
+      const solve_import = import( "./wasm/deschiffres.js").then((module) => module.default().then(() => module.solve_js))
+
+      form.addEventListener('submit', (e) => {
+          e.preventDefault()
+
+          if (! form.checkValidity() ) {
+            console.error("Form did not validate, abort")
+            return
+          }
+
+          const numbers = input_n.map(x => parseInt(x.value, 10)).filter(x => !isNaN(x))
+          const target = parseInt(input_t.value, 10)
+
+          if (numbers.length != 6 || isNaN(target)) {
+            console.error(`Need 6 numbers, got ${numbers.length}`)
+            return
+          }
+
+          console.log(`Find ${target} with ${numbers}`)
+
+          solve_import.then( (solve) => {
+            console.time("Solving")
+            let solved = solve(numbers, target, 0)
+            showResult(solved)
+            console.timeEnd("Solving")
+            console.log("solved", solved)
+          })
+        })
+    </script>
+  </body>
+</html>

@@ -1,3 +1,6 @@
+# WASM build directory
+WASM_DIR := html/wasm/
+
 default: debug
 
 debug:
@@ -9,5 +12,11 @@ release:
 test:
 	cargo test
 
+clean:
+	cargo clean
+	rm -f temp-wasm/* ${WASM_DIR}}/*
+	rmdir -f temp-wasm
+
 wasm:
-	wasm-pack build --target web --no-typescript --release --features wasm
+	wasm-pack build --target web -d temp-wasm/ --no-typescript --release --features wasm
+	cp temp-wasm/*.js temp-wasm/*.wasm ${WASM_DIR}
