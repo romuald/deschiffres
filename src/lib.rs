@@ -49,9 +49,11 @@ impl Number {
     }
 
     fn from(value: i32, op: Operation, a: &Number, b: &Number) -> Self {
-        let mut operations = vec![MOperation(op, a.value, b.value)];
-        operations.extend(a.operations.iter());
-        operations.extend(b.operations.iter());
+        let operations = [
+          &[MOperation(op, a.value, b.value)][..],
+          &a.operations,
+          &b.operations
+        ].concat();
 
         Self { value, operations }
     }
