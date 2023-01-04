@@ -231,6 +231,7 @@ fn combination_worker(
 ) {
     while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
         // Do not combine again if this set of elements was already seen
+
         let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
         values.sort();
         {
@@ -245,37 +246,46 @@ fn combination_worker(
     }
 }
 
-fn js_worker(
+fn threadless_worker(
     tx: Sender<Vec<Number>>,
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
     result_rx: Receiver<Number>,
-    seen: SeenType,
     results: Arc<Mutex<ResultSet>>,
 ) {
+    let mut seen = HashSet::new();
+    let mut lresults: HashMap<i32, Number> = HashMap::new();
     loop {
-        result_worker(result_rx.clone(), results.clone(), false);
+        while let Ok(value) = result_rx.try_recv() {
+            if let Some(current) = lresults.get(&value.value) {
+                if current.len() > value.len() {
+                    lresults.insert(value.value, value.clone());
+                }
+            } else {
+                lresults.insert(value.value, value.clone());
+            }
+        }
 
         let elements = match rx.try_recv() {
             Ok(x) => x,
             Err(_) => break,
         };
 
-        {
-            // Do not combine again if this set of elements was already seen
-            let mut set = seen.lock().unwrap();
-            let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
-            values.sort();
+        // Do not combine again if this set of elements was already seen
+        let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+        values.sort();
 
-            // HashSet.insert returns true if element was already present
-            if !set.insert(values) {
-                continue;
-            }
+        // HashSet.insert returns true if element was already present
+        if !seen.insert(values) {
+            continue;
         }
 
         combine(tx.clone(), &elements, result_tx.clone());
     }
-} //try_recv
+
+    let mut results = results.lock().unwrap();
+    results.extend(lresults)
+}
 
 // Main algorithm, find all combinations for a given list of integers
 // Use workers + channels for multithreading
@@ -300,12 +310,11 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
     combine_tx.send(initial).unwrap();
 
     if cfg!(target_arch = "wasm32") || n_workers == 0 {
-        js_worker(
+        threadless_worker(
             combine_tx,
             combine_rx,
             result_tx,
             result_rx,
-            seen,
             results.clone(),
         );
 
@@ -372,10 +381,20 @@ mod test {
     use crate::*;
 
     #[test]
-    fn test_combinations() {
+    fn test_combinations_multi() {
         let numbers = vec![5, 25, 2, 50, 10];
 
         let combinations = all_combinations(&numbers, 1);
+
+        assert_eq!(combinations.len(), 1085);
+        assert!(combinations.contains_key(&280));
+    }
+
+    #[test]
+    fn test_combinations_single() {
+        let numbers = vec![5, 25, 2, 50, 10];
+
+        let combinations = all_combinations(&numbers, 0);
 
         assert_eq!(combinations.len(), 1085);
         assert!(combinations.contains_key(&280));
