@@ -5,9 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::thread::available_parallelism;
 use std::time::Duration;
 
-// Performance degrades with multiple workers (cache issue?)
-// Keep them to an "optimal" limit
-const MAX_WORKERS: usize = 8;
+// This only affects the `solve` method (not the benchmarks)
+const MAX_WORKERS: usize = 5;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -301,7 +300,7 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
 
     let nworkers = match ncores {
         0 | 1 | 2 => 1,
-        x =>  std::cmp::min(x - 2, max_workers),
+        x => std::cmp::min(x - 2, max_workers),
     };
 
     let (combine_tx, combine_rx) = unbounded();
@@ -383,7 +382,7 @@ mod test {
     fn test_combinations_multi() {
         let numbers = vec![5, 25, 2, 50, 10];
 
-        let combinations = all_combinations(&numbers, 1);
+        let combinations = all_combinations(&numbers, 4);
 
         assert_eq!(combinations.len(), 1085);
         assert!(combinations.contains_key(&280));
