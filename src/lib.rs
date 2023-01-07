@@ -2,13 +2,12 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use crossbeam_utils::thread::scope;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
 use std::thread::available_parallelism;
 use std::time::Duration;
 
 // Performance degrades with multiple workers (cache issue?)
 // Keep them to an "optimal" limit
-const MAX_WORKERS: usize = 3;
+const MAX_WORKERS: usize = 8;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -25,7 +24,6 @@ use wasm_bindgen::prelude::*;
 mod console_log;
 
 type ResultSet = HashMap<i32, Number>;
-type SeenType = Arc<Mutex<HashSet<Vec<i32>>>>;
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "wasm", derive(Serialize, Deserialize))]
@@ -174,6 +172,7 @@ fn operate(
             remove_from_vec(&mut subelements, b);
 
             subelements.push(value);
+            subelements.sort_by(|a, b| a.value.partial_cmp(&b.value).unwrap());
 
             tx.send(subelements).unwrap();
         }
@@ -182,7 +181,7 @@ fn operate(
 
 // Receive from the result channel, and set the elements of the result map
 // If an duplicate result was is seen, use the shortest Number (least number of operations)
-fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>, blocking: bool) {
+fn result_worker(rtx: Receiver<Number>, results: &mut ResultSet, blocking: bool) {
     loop {
         let value = if blocking {
             match rtx.recv() {
@@ -196,16 +195,12 @@ fn result_worker(rtx: Receiver<Number>, results: Arc<Mutex<ResultSet>>, blocking
             }
         };
 
-        {
-            let mut results = results.lock().unwrap();
-
-            if let Some(current) = results.get(&value.value) {
-                if current.len() > value.len() {
-                    results.insert(value.value, value.clone());
-                }
-            } else {
+        if let Some(current) = results.get(&value.value) {
+            if current.len() > value.len() {
                 results.insert(value.value, value.clone());
             }
+        } else {
+            results.insert(value.value, value.clone());
         }
     }
 }
@@ -231,22 +226,33 @@ fn combination_worker(
     tx: Sender<Vec<Number>>,
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
-    seen: SeenType,
 ) {
     while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
         // Do not combine again if this set of elements was already seen
+        combine(tx.clone(), &elements, result_tx.clone());
+    }
+}
 
-        let mut values: Vec<i32> = elements.iter().map(|x| x.value).collect();
-        values.sort();
-        {
-            let mut set = seen.lock().unwrap();
-            // HashSet.insert returns true if element was already present
-            if !set.insert(values) {
-                continue;
-            }
+// Single thread/worker that recieve the combinaisons
+// and only forwards them if they weren't already seen
+fn combine_sieve(rx: Receiver<Vec<Number>>, tx: Sender<Vec<Number>>) {
+    let mut seen = HashSet::with_capacity(500);
+
+    while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
+        let values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+
+        // HashSet.insert returns true if element was already present
+        if !seen.insert(values) {
+            continue;
         }
 
-        combine(tx.clone(), &elements, result_tx.clone());
+        match tx.send(elements) {
+            Ok(_) => continue,
+            Err(what) => {
+                println!("what? {what:?}");
+                panic!("nop");
+            }
+        }
     }
 }
 
@@ -298,55 +304,62 @@ fn threadless_worker(
 // Use workers + channels for multithreading
 pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
     let ncores = match available_parallelism() {
-        Ok(x) => std::cmp::max(2, x.get()),
+        Ok(x) => x.get(),
         Err(_) => 1,
     };
 
-    let n_workers = std::cmp::min(ncores - 1, max_workers);
+    let nworkers = match ncores {
+        0 | 1 | 2 => 1,
+        x =>  std::cmp::min(x - 2, max_workers),
+    };
 
     // All possible results
-    let results: Arc<Mutex<ResultSet>> = Arc::new(Mutex::new(HashMap::new()));
-
-    // The set of list of elements we've already seen (avoid re-computing twice)
-    let seen: SeenType = Arc::new(Mutex::new(HashSet::new()));
+    let mut results = HashMap::new();
 
     let (combine_tx, combine_rx) = unbounded();
+    let (sieve_tx, sieve_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
 
     // Initial list of numbers
     let initial = base_numbers.iter().map(|x| Number::from_int(*x)).collect();
     combine_tx.send(initial).unwrap();
 
-    if cfg!(target_arch = "wasm32") || n_workers == 0 {
+    if cfg!(target_arch = "wasm32") || nworkers < 2 {
         return threadless_worker(combine_tx, combine_rx, result_tx, result_rx);
     }
 
     scope(|s| {
         let mut workers = Vec::new();
-        for _ in 0..n_workers {
-            let vtx = combine_tx.clone();
-            let vrx = combine_rx.clone();
-            let res_tx = result_tx.clone();
-            let seen = seen.clone();
 
-            let worker = s.spawn(|_| combination_worker(vtx, vrx, res_tx, seen));
+        // Combinaison workers (ncores - 2)
+        for _ in 0..nworkers {
+            let res_tx = result_tx.clone();
+
+            let tx = sieve_tx.clone();
+            let rx = combine_rx.clone();
+
+            let worker = s.spawn(|_| combination_worker(tx, rx, res_tx));
             workers.push(worker);
         }
 
+        // Sieve worker
         {
-            // seems to be no gain from parallelism here
-            let rx = result_rx.clone();
-            let worker = s.spawn(|_| result_worker(rx, results.clone(), true));
+            let sieve_rx = sieve_rx.clone();
+            let combine_tx = combine_tx.clone();
+            let worker = s.spawn(|_| combine_sieve(sieve_rx, combine_tx));
             workers.push(worker)
         }
-        drop(combine_tx);
+
         drop(result_tx);
 
-        for worker in workers {
-            worker.join().unwrap();
-        }
+        result_worker(result_rx, &mut results, true);
 
-        results.lock().unwrap().to_owned()
+        // No need? Workers should have finished by the time result_worker is done
+        //for worker in workers {
+        //    worker.join().unwrap();
+        //}
+
+        results
     })
     .unwrap()
 }

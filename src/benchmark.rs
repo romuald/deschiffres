@@ -2,6 +2,7 @@ use std::thread::available_parallelism;
 use std::time::Instant;
 
 use deschiffres::all_combinations;
+
 const LOOPS: usize = 30;
 const MAX_CORES: usize = 32;
 
@@ -15,7 +16,6 @@ fn main() {
     let ncores = std::cmp::min(ncores, MAX_CORES);
 
     for w in 0..ncores {
-        println!("w? {w}");
         let start = Instant::now();
         for _ in 0..LOOPS {
             all_combinations(&spec, w);
