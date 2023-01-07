@@ -181,20 +181,10 @@ fn operate(
 
 // Receive from the result channel, and set the elements of the result map
 // If an duplicate result was is seen, use the shortest Number (least number of operations)
-fn result_worker(rtx: Receiver<Number>, results: &mut ResultSet, blocking: bool) {
-    loop {
-        let value = if blocking {
-            match rtx.recv() {
-                Ok(x) => x,
-                Err(_) => break,
-            }
-        } else {
-            match rtx.try_recv() {
-                Ok(x) => x,
-                Err(_) => break,
-            }
-        };
+fn result_worker(rtx: Receiver<Number>) -> ResultSet {
+    let mut results: ResultSet = HashMap::new();
 
+    while let Ok(value) = rtx.recv() {
         if let Some(current) = results.get(&value.value) {
             if current.len() > value.len() {
                 results.insert(value.value, value.clone());
@@ -203,6 +193,7 @@ fn result_worker(rtx: Receiver<Number>, results: &mut ResultSet, blocking: bool)
             results.insert(value.value, value.clone());
         }
     }
+    results
 }
 
 // Given a list of Number, try to combinate every possible pair of them
@@ -313,9 +304,6 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
         x =>  std::cmp::min(x - 2, max_workers),
     };
 
-    // All possible results
-    let mut results = HashMap::new();
-
     let (combine_tx, combine_rx) = unbounded();
     let (sieve_tx, sieve_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
@@ -352,14 +340,12 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
 
         drop(result_tx);
 
-        result_worker(result_rx, &mut results, true);
-
         // No need? Workers should have finished by the time result_worker is done
         //for worker in workers {
         //    worker.join().unwrap();
         //}
 
-        results
+        result_worker(result_rx)
     })
     .unwrap()
 }
