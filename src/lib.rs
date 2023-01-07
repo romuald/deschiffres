@@ -50,10 +50,11 @@ impl Number {
 
     fn from(value: i32, op: Operation, a: &Number, b: &Number) -> Self {
         let operations = [
-          &[MOperation(op, a.value, b.value)][..],
-          &a.operations,
-          &b.operations
-        ].concat();
+            &[MOperation(op, a.value, b.value)][..],
+            &a.operations,
+            &b.operations,
+        ]
+        .concat();
 
         Self { value, operations }
     }
@@ -116,6 +117,7 @@ impl std::fmt::Display for Operation {
 }
 
 // Remove a single matching element from a vector of numbers
+//#[inline]
 fn remove_from_vec(vec: &mut Vec<Number>, to_remove: &Number) {
     for (i, elt) in vec.iter().enumerate() {
         if elt.value == to_remove.value {
@@ -248,25 +250,30 @@ fn combination_worker(
     }
 }
 
+#[inline]
+fn results_append(rx: &Receiver<Number>, results: &mut HashMap<i32, Number>) {
+    while let Ok(value) = rx.try_recv() {
+        if let Some(current) = results.get(&value.value) {
+            if current.len() > value.len() {
+                results.insert(value.value, value.clone());
+            }
+        } else {
+            results.insert(value.value, value.clone());
+        }
+    }
+}
+
 fn threadless_worker(
     tx: Sender<Vec<Number>>,
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
     result_rx: Receiver<Number>,
-    results: Arc<Mutex<ResultSet>>,
-) {
-    let mut seen = HashSet::new();
-    let mut lresults: HashMap<i32, Number> = HashMap::new();
+) -> ResultSet {
+    let mut seen = HashSet::with_capacity(500);
+    let mut results: HashMap<i32, Number> = HashMap::with_capacity(500);
+
     loop {
-        while let Ok(value) = result_rx.try_recv() {
-            if let Some(current) = lresults.get(&value.value) {
-                if current.len() > value.len() {
-                    lresults.insert(value.value, value.clone());
-                }
-            } else {
-                lresults.insert(value.value, value.clone());
-            }
-        }
+        results_append(&result_rx, &mut results);
 
         let elements = match rx.try_recv() {
             Ok(x) => x,
@@ -284,9 +291,7 @@ fn threadless_worker(
 
         combine(tx.clone(), &elements, result_tx.clone());
     }
-
-    let mut results = results.lock().unwrap();
-    results.extend(lresults)
+    results
 }
 
 // Main algorithm, find all combinations for a given list of integers
@@ -307,20 +312,13 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
 
     let (combine_tx, combine_rx) = unbounded();
     let (result_tx, result_rx) = unbounded();
+
     // Initial list of numbers
     let initial = base_numbers.iter().map(|x| Number::from_int(*x)).collect();
     combine_tx.send(initial).unwrap();
 
     if cfg!(target_arch = "wasm32") || n_workers == 0 {
-        threadless_worker(
-            combine_tx,
-            combine_rx,
-            result_tx,
-            result_rx,
-            results.clone(),
-        );
-
-        return results.lock().unwrap().to_owned();
+        return threadless_worker(combine_tx, combine_rx, result_tx, result_rx);
     }
 
     scope(|s| {
