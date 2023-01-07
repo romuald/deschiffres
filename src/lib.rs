@@ -1,5 +1,5 @@
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use crossbeam_utils::thread::scope;
+use crossbeam_utils::thread::scope as cross_scope;
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::thread::available_parallelism;
@@ -218,7 +218,6 @@ fn combination_worker(
     result_tx: Sender<Number>,
 ) {
     while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
-        // Do not combine again if this set of elements was already seen
         combine(tx.clone(), &elements, result_tx.clone());
     }
 }
@@ -229,19 +228,12 @@ fn combine_sieve(rx: Receiver<Vec<Number>>, tx: Sender<Vec<Number>>) {
     let mut seen = HashSet::with_capacity(500);
 
     while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
+        // Map elements to integers
         let values: Vec<i32> = elements.iter().map(|x| x.value).collect();
 
-        // HashSet.insert returns true if element was already present
-        if !seen.insert(values) {
-            continue;
-        }
-
-        match tx.send(elements) {
-            Ok(_) => continue,
-            Err(what) => {
-                println!("what? {what:?}");
-                panic!("nop");
-            }
+        // HashSet.insert returns true if element was NOT present
+        if seen.insert(values) {
+            tx.send(elements).unwrap()
         }
     }
 }
@@ -300,7 +292,7 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
 
     let nworkers = match ncores {
         0 | 1 | 2 => 1,
-        x => std::cmp::min(x - 2, max_workers),
+        n => std::cmp::min(n - 2, max_workers),
     };
 
     let (combine_tx, combine_rx) = unbounded();
@@ -315,29 +307,29 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
         return threadless_worker(combine_tx, combine_rx, result_tx, result_rx);
     }
 
-    scope(|s| {
+    cross_scope(|scope| {
         let mut workers = Vec::new();
 
         // Combinaison workers (ncores - 2)
         for _ in 0..nworkers {
-            let res_tx = result_tx.clone();
+            let result_tx = result_tx.clone();
 
+            // Sent new combinaisons to the sieve
             let tx = sieve_tx.clone();
             let rx = combine_rx.clone();
 
-            let worker = s.spawn(|_| combination_worker(tx, rx, res_tx));
+            let worker = scope.spawn(|_| combination_worker(tx, rx, result_tx));
             workers.push(worker);
         }
+        drop(result_tx);
 
         // Sieve worker
         {
             let sieve_rx = sieve_rx.clone();
             let combine_tx = combine_tx.clone();
-            let worker = s.spawn(|_| combine_sieve(sieve_rx, combine_tx));
+            let worker = scope.spawn(|_| combine_sieve(sieve_rx, combine_tx));
             workers.push(worker)
         }
-
-        drop(result_tx);
 
         // No need? Workers should have finished by the time result_worker is done
         //for worker in workers {
