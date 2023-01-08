@@ -79,6 +79,10 @@
    margin-right: 30px;
  }
 
+ .buttons {
+    margin-top: 10px;
+ }
+
  input[type="submit"], input[type="button"] {
    font-size: 20pt;
    font-weight: bold;
@@ -86,7 +90,7 @@
 
    color: #fafafa;
    background-color: hsl(243, 100%, 7%);
-   background-image: linear-gradient(0deg, hsl(243, 100%, 7%) 49%, hsl(233, 98%, 22%) 51%);
+   background-image: linear-gradient(0deg, hsl(243, 100%, 10%) 49%, hsl(233, 98%, 23%) 51%);
    border-radius: 7px;
    margin-right: 12px;
    margin-top: 10px;
