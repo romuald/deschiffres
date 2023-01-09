@@ -6,7 +6,7 @@ use std::thread::available_parallelism;
 use std::time::Duration;
 
 // This only affects the `solve` method (not the benchmarks)
-const MAX_WORKERS: usize = 5;
+const MAX_WORKERS: usize = 0;
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -307,6 +307,10 @@ pub fn all_combinations(base_numbers: &[i32], max_workers: usize) -> ResultSet {
         return threadless_worker(combine_tx, combine_rx, result_tx, result_rx);
     }
 
+    // WARNING: the current implementation is bugged
+    // Since the sieve / combien threads are feeding each other,
+    // there is no way of reliably know when they are both finished (that is still performant)
+    // In some cases the workers are too slow to fill the channels and the worker exits early
     cross_scope(|scope| {
         let mut workers = Vec::new();
 
