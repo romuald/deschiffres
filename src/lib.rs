@@ -6,7 +6,9 @@ use std::thread::available_parallelism;
 use std::time::Duration;
 
 // This only affects the `solve` method (not the benchmarks)
-const MAX_WORKERS: usize = 0;
+const MAX_WORKERS: usize = 5;
+
+const QUEUE_WAIT: Duration = Duration::from_millis(15);
 
 cfg_if::cfg_if! {
     if #[cfg(target_arch = "wasm32")] {
@@ -217,8 +219,14 @@ fn combination_worker(
     rx: Receiver<Vec<Number>>,
     result_tx: Sender<Number>,
 ) {
-    while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
-        combine(tx.clone(), &elements, result_tx.clone());
+    loop {
+        while let Ok(elements) = rx.recv_timeout(QUEUE_WAIT) {
+            combine(tx.clone(), &elements, result_tx.clone());
+        }
+
+        if tx.is_empty() {
+            break;
+        }
     }
 }
 
@@ -227,13 +235,18 @@ fn combination_worker(
 fn combine_sieve(rx: Receiver<Vec<Number>>, tx: Sender<Vec<Number>>) {
     let mut seen = HashSet::with_capacity(500);
 
-    while let Ok(elements) = rx.recv_timeout(Duration::from_millis(2)) {
-        // Map elements to integers
-        let values: Vec<i32> = elements.iter().map(|x| x.value).collect();
+    loop {
+        while let Ok(elements) = rx.recv_timeout(QUEUE_WAIT) {
+            // Map elements to integers
+            let values: Vec<i32> = elements.iter().map(|x| x.value).collect();
 
-        // HashSet.insert returns true if element was NOT present
-        if seen.insert(values) {
-            tx.send(elements).unwrap()
+            // HashSet.insert returns true if element was NOT present
+            if seen.insert(values) {
+                tx.send(elements).unwrap()
+            }
+        }
+        if tx.is_empty() {
+            break;
         }
     }
 }
