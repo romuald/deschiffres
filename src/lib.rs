@@ -406,4 +406,14 @@ mod test {
         assert_eq!(combinations.len(), 1085);
         assert!(combinations.contains_key(&280));
     }
+
+    // WARNING: this test is relatively long and CPU intensive
+    // This is a regression test for workers not waiting for each other
+    #[test]
+    fn test_combinations_large() {
+        let numbers = vec![5, 25, 2, 50, 10, 8, 4];
+        let combinations = all_combinations(&numbers, 5);
+
+        assert_eq!(combinations.len(), 51834);
+    }
 }
