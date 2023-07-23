@@ -45,6 +45,13 @@ const form = document.querySelector('form')
 const input_n = [...document.querySelectorAll('input[max="100"]')]
 const input_t = document.querySelector('#target')
 
+// Select whole input on click (mostly for mobile)
+input_n.forEach((input) => {
+    input.addEventListener("focus", (event) => {
+        event.target.select()
+    })
+})
+
 document.querySelector("#gen-random").addEventListener("click", () => {
     let mypool = [...pool]
     let numbers = []
