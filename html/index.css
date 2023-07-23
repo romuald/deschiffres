@@ -83,7 +83,7 @@
     margin-top: 10px;
  }
 
- input[type="submit"], input[type="button"] {
+ input[type="submit"], input[type="button"], input[type="reset"] {
    font-size: 20pt;
    font-weight: bold;
    padding: 8px 22px;
