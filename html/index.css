@@ -105,3 +105,13 @@
  .no-result {
     font-size: 20pt;
  }
+
+ .no-result-approx {
+  display: inline-block;
+  font-size: 16pt;
+  padding: 8px 14px;
+  border: 1px solid #aaa;
+  margin: 0 auto;
+  margin-bottom: 16px;
+  background-color: rgb(245, 241, 18);
+}

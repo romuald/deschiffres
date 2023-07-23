@@ -7,7 +7,7 @@ const apply_operation = (op, a, b) => (
     }[op](a, b)
 )
 
-function showResult(result) {
+function showResult(target, result) {
     const tmpl = document.getElementById("result-template")
 
     const result_node = document.querySelector("#results")
@@ -16,6 +16,9 @@ function showResult(result) {
     if (result === null || typeof result === "undefined") {
         result_node.appendChild(document.getElementById("no-result").content.cloneNode(true))
         return
+    }
+    if (result.value != target) {
+        result_node.appendChild(document.getElementById("no-result-approx").content.cloneNode(true))
     }
 
     for (let i = result.operations.length - 1; i >= 0; i--) {
@@ -86,9 +89,9 @@ form.addEventListener('submit', (e) => {
 
     solve_import.then((solve) => {
         console.time("Solving")
-        let solved = solve(numbers, target, 0)
-        showResult(solved)
+        let solved = solve(numbers, target, 100)
         console.timeEnd("Solving")
+        showResult(target, solved)
         console.log("solved", solved)
     })
 })
